@@ -1,25 +1,25 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3X3, Ghost, Brain, Car, Users, Zap } from 'lucide-react';
+import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3X3, Ghost, Brain, Car, Users, Zap, Gauge, AlertCircle } from 'lucide-react';
 
 /**
- * GameBox - 一個包含多款小遊戲的單頁應用程式
- * 使用 Tailwind CSS 進行樣式設計
+ * GameBox v1.4.0 - 最終完整版
+ * 包含：
+ * 1. 賽車遊戲：難度選擇、雙人邊界限制、觸控分區
+ * 2. 版面修復：解決右側灰色留白問題 (w-full)
+ * 3. 貪吃蛇：防止網頁捲動、優化手機控制
  */
 
 // --- 共用組件 ---
 
 const Button = ({ onClick, children, className = "", variant = "primary", disabled = false }) => {
-  const baseStyle = "px-4 py-2 rounded-lg font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2";
+  const baseStyle = "px-4 py-2 rounded-lg font-bold transition-all transform active:scale-95 flex items-center justify-center gap-2 select-none touch-manipulation";
   const variants = {
     primary: "bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg hover:shadow-blue-500/50 hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed",
     secondary: "bg-slate-700 text-white hover:bg-slate-600 shadow-md disabled:opacity-50",
     danger: "bg-red-500 text-white hover:bg-red-600 shadow-red-500/30 disabled:opacity-50",
     success: "bg-green-500 text-white hover:bg-green-600 shadow-green-500/30 disabled:opacity-50",
-    outline: "border-2 border-slate-600 text-slate-300 hover:border-slate-400 hover:text-white disabled:opacity-50"
+    outline: "border-2 border-slate-600 text-slate-300 hover:border-slate-400 hover:text-white disabled:opacity-50",
+    ghost: "bg-transparent text-slate-400 hover:text-white hover:bg-slate-800"
   };
 
   return (
@@ -104,8 +104,8 @@ const TicTacToe = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-full">
-      <div className="flex justify-between w-full max-w-md items-center mb-6">
+    <div className="flex flex-col items-center justify-center min-h-full py-10 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-6 px-4">
         <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18} /></Button>
         <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Grid3X3 className="text-blue-400" /> 井字遊戲</h2>
         <Button onClick={resetGame} variant="secondary" className="!px-3"><RotateCcw size={18} /></Button>
@@ -118,7 +118,7 @@ const TicTacToe = ({ onBack }) => {
             return (
               <button
                 key={i}
-                className={`w-20 h-20 sm:w-24 sm:h-24 text-4xl sm:text-5xl font-bold rounded-xl flex items-center justify-center transition-all duration-200
+                className={`w-20 h-20 sm:w-24 sm:h-24 text-4xl sm:text-5xl font-bold rounded-xl flex items-center justify-center transition-all duration-200 touch-manipulation
                   ${!square && !winner ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-700'}
                   ${square === 'X' ? 'text-blue-400' : 'text-pink-400'}
                   ${isWinningSquare ? 'bg-green-500/20 ring-2 ring-green-500' : ''}
@@ -162,6 +162,11 @@ const SnakeGame = ({ onBack }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (gameOver) return;
+      // 防止方向鍵捲動網頁
+      if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+      }
+
       switch(e.key) {
         case 'ArrowUp': if(direction.y === 0) { setDirection({x: 0, y: -1}); setIsPaused(false); } break;
         case 'ArrowDown': if(direction.y === 0) { setDirection({x: 0, y: 1}); setIsPaused(false); } break;
@@ -246,8 +251,8 @@ const SnakeGame = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full">
-      <div className="flex justify-between w-full max-w-md items-center mb-4">
+    <div className="flex flex-col items-center justify-center w-full py-10">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
         <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18} /></Button>
         <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Ghost className="text-green-400" /> 貪吃蛇</h2>
         <Button onClick={resetGame} variant="secondary" className="!px-3"><RotateCcw size={18} /></Button>
@@ -256,7 +261,7 @@ const SnakeGame = ({ onBack }) => {
       <ScoreBoard score={score} bestScore={highScore} />
 
       <div 
-        className="relative bg-slate-900 border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl"
+        className="relative bg-slate-900 border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl touch-none"
         style={{ width: 'min(90vw, 400px)', height: 'min(90vw, 400px)' }}
       >
         <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`, gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)` }}>
@@ -291,13 +296,14 @@ const SnakeGame = ({ onBack }) => {
         />
       </div>
 
-      <div className="mt-6 grid grid-cols-3 gap-2 w-48 sm:hidden">
+      {/* 觸控控制器 - 支援手機觸控，防止縮放 */}
+      <div className="mt-6 grid grid-cols-3 gap-2 w-48 select-none touch-manipulation">
         <div />
-        <Button onClick={() => handleControl('UP')} variant="secondary" className="h-12 !p-0 flex items-center justify-center">⬆️</Button>
+        <Button onClick={() => handleControl('UP')} variant="secondary" className="h-12 !p-0 flex items-center justify-center active:bg-slate-500">⬆️</Button>
         <div />
-        <Button onClick={() => handleControl('LEFT')} variant="secondary" className="h-12 !p-0 flex items-center justify-center">⬅️</Button>
-        <Button onClick={() => handleControl('DOWN')} variant="secondary" className="h-12 !p-0 flex items-center justify-center">⬇️</Button>
-        <Button onClick={() => handleControl('RIGHT')} variant="secondary" className="h-12 !p-0 flex items-center justify-center">➡️</Button>
+        <Button onClick={() => handleControl('LEFT')} variant="secondary" className="h-12 !p-0 flex items-center justify-center active:bg-slate-500">⬅️</Button>
+        <Button onClick={() => handleControl('DOWN')} variant="secondary" className="h-12 !p-0 flex items-center justify-center active:bg-slate-500">⬇️</Button>
+        <Button onClick={() => handleControl('RIGHT')} variant="secondary" className="h-12 !p-0 flex items-center justify-center active:bg-slate-500">➡️</Button>
       </div>
       <p className="hidden sm:block text-slate-400 mt-4 text-sm">使用鍵盤方向鍵控制移動</p>
     </div>
@@ -362,7 +368,7 @@ const MemoryGame = ({ onBack }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full max-w-2xl">
+    <div className="flex flex-col items-center justify-center w-full max-w-2xl py-10">
       <div className="flex justify-between w-full items-center mb-6 px-4">
         <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18} /></Button>
         <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Brain className="text-purple-400" /> 記憶翻牌</h2>
@@ -378,7 +384,7 @@ const MemoryGame = ({ onBack }) => {
         {cards.map(card => (
           <div 
             key={card.id} 
-            className="relative w-16 h-16 sm:w-20 sm:h-20 cursor-pointer perspective-1000"
+            className="relative w-16 h-16 sm:w-20 sm:h-20 cursor-pointer perspective-1000 touch-manipulation"
             onClick={() => {
               if (!disabled && !card.matched && card !== choiceOne) {
                 handleChoice(card);
@@ -411,35 +417,38 @@ const MemoryGame = ({ onBack }) => {
 // --- 遊戲 4: 賽車 (Racing Game) ---
 
 const RacingGame = ({ onBack }) => {
-  const [gameStatus, setGameStatus] = useState('menu'); // menu, playing, gameover
-  const [mode, setMode] = useState(1); // 1 or 2 players
+  const [gameStatus, setGameStatus] = useState('menu'); 
+  const [mode, setMode] = useState(1); 
+  const [difficulty, setDifficulty] = useState('normal'); // easy, normal, hard
   const [score, setScore] = useState(0);
-  const [winner, setWinner] = useState(null); // 'P1' or 'P2' or null (single player gameover)
+  const [winner, setWinner] = useState(null);
   
   // 遊戲參數
   const GAME_WIDTH = 360;
   const GAME_HEIGHT = 500;
   const CAR_WIDTH = 30;
   const CAR_HEIGHT = 50;
-  const PLAYER_SPEED = 5;
-  const BASE_OBSTACLE_SPEED = 3;
   
-  // 遊戲狀態 Refs (避免頻繁渲染)
+  // 難度設定
+  const DIFFICULTY_SETTINGS = {
+    easy: { speed: 2, spawnRate: 0.015, playerSpeed: 4 },
+    normal: { speed: 3.5, spawnRate: 0.02, playerSpeed: 5 },
+    hard: { speed: 6, spawnRate: 0.035, playerSpeed: 6 }
+  };
+  
   const gameStateRef = useRef({
-    p1: { x: 100, alive: true, color: 'text-blue-500' },
-    p2: { x: 230, alive: true, color: 'text-red-500' },
+    p1: { x: 100, alive: true },
+    p2: { x: 230, alive: true },
     obstacles: [],
-    speed: BASE_OBSTACLE_SPEED,
+    speed: 3,
     score: 0,
     frameId: null,
     keysPressed: {}
   });
 
-  // 鍵盤監聽
   useEffect(() => {
     const handleKeyDown = (e) => gameStateRef.current.keysPressed[e.code] = true;
     const handleKeyUp = (e) => gameStateRef.current.keysPressed[e.code] = false;
-    
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
@@ -454,35 +463,61 @@ const RacingGame = ({ onBack }) => {
     setWinner(null);
     setGameStatus('playing');
     
-    // 初始化狀態
-    gameStateRef.current.p1 = { x: selectedMode === 1 ? GAME_WIDTH / 2 - CAR_WIDTH / 2 : GAME_WIDTH / 4, alive: true, color: 'text-blue-500' };
-    gameStateRef.current.p2 = { x: 3 * GAME_WIDTH / 4, alive: true, color: 'text-red-500' };
-    gameStateRef.current.obstacles = [];
-    gameStateRef.current.speed = BASE_OBSTACLE_SPEED;
-    gameStateRef.current.score = 0;
-    gameStateRef.current.keysPressed = {};
+    const settings = DIFFICULTY_SETTINGS[difficulty];
+    
+    // 初始化位置 - 確保在各自跑道
+    const p1StartX = selectedMode === 1 ? GAME_WIDTH/2 - CAR_WIDTH/2 : GAME_WIDTH/4 - CAR_WIDTH/2;
+    const p2StartX = 3 * GAME_WIDTH/4 - CAR_WIDTH/2;
+
+    gameStateRef.current = {
+      p1: { x: p1StartX, alive: true },
+      p2: { x: p2StartX, alive: true },
+      obstacles: [],
+      speed: settings.speed,
+      score: 0,
+      frameId: null,
+      keysPressed: {},
+      settings: settings // 儲存設定供 loop 使用
+    };
 
     gameLoop();
   };
 
   const gameLoop = () => {
     const state = gameStateRef.current;
+    const { playerSpeed } = state.settings;
     
-    // 1. 移動玩家
-    // P1 Controls: A / D
+    // 1. 移動玩家 (含邊界檢查)
+    // 單人模式：全螢幕 | 雙人模式：P1 左半，P2 右半
+    const halfWidth = GAME_WIDTH / 2;
+
+    // P1 Controls
     if (state.p1.alive) {
-      if (state.keysPressed['KeyA'] && state.p1.x > 0) state.p1.x -= PLAYER_SPEED;
-      if (state.keysPressed['KeyD'] && state.p1.x < GAME_WIDTH - CAR_WIDTH) state.p1.x += PLAYER_SPEED;
+      if (state.keysPressed['KeyA'] || state.keysPressed['ArrowLeft']) { // P1 也可以用方向鍵（單人時）
+        if (mode === 1) { // 單人邊界
+          if (state.p1.x > 0) state.p1.x -= playerSpeed;
+        } else { // 雙人 P1 邊界 (左半)
+           // 這裡 ArrowLeft 只對 P2 有效，所以要分離
+           if (state.keysPressed['KeyA'] && state.p1.x > 0) state.p1.x -= playerSpeed;
+        }
+      }
+      if (state.keysPressed['KeyD'] || state.keysPressed['ArrowRight']) {
+         if (mode === 1) {
+          if (state.p1.x < GAME_WIDTH - CAR_WIDTH) state.p1.x += playerSpeed;
+         } else {
+           if (state.keysPressed['KeyD'] && state.p1.x < halfWidth - CAR_WIDTH - 2) state.p1.x += playerSpeed;
+         }
+      }
     }
 
-    // P2 Controls: ArrowLeft / ArrowRight (僅雙人模式)
+    // P2 Controls (僅雙人)
     if (mode === 2 && state.p2.alive) {
-      if (state.keysPressed['ArrowLeft'] && state.p2.x > 0) state.p2.x -= PLAYER_SPEED;
-      if (state.keysPressed['ArrowRight'] && state.p2.x < GAME_WIDTH - CAR_WIDTH) state.p2.x += PLAYER_SPEED;
+      if (state.keysPressed['ArrowLeft'] && state.p2.x > halfWidth + 2) state.p2.x -= playerSpeed;
+      if (state.keysPressed['ArrowRight'] && state.p2.x < GAME_WIDTH - CAR_WIDTH) state.p2.x += playerSpeed;
     }
 
-    // 2. 生成與移動障礙物
-    if (Math.random() < 0.02 + (state.score * 0.0001)) {
+    // 2. 生成障礙物
+    if (Math.random() < state.settings.spawnRate + (state.score * 0.00005)) {
       const obstacleWidth = 40;
       state.obstacles.push({
         id: Math.random(),
@@ -496,22 +531,21 @@ const RacingGame = ({ onBack }) => {
 
     state.obstacles.forEach(obs => obs.y += state.speed);
     
-    // 移除超出螢幕的障礙物並加分
     const remainingObstacles = state.obstacles.filter(obs => obs.y < GAME_HEIGHT);
     if (state.obstacles.length > remainingObstacles.length) {
       state.score += 10;
       setScore(state.score);
-      // 難度增加
-      if (state.score % 100 === 0) state.speed += 0.5;
+      // 隨時間微幅加速
+      if (state.score % 200 === 0) state.speed += 0.2;
     }
     state.obstacles = remainingObstacles;
 
     // 3. 碰撞檢測
     const checkCollision = (player) => {
-      const playerRect = { x: player.x + 5, y: GAME_HEIGHT - CAR_HEIGHT - 10, w: CAR_WIDTH - 10, h: CAR_HEIGHT }; // 稍微縮小碰撞箱
+      const playerRect = { x: player.x + 8, y: GAME_HEIGHT - CAR_HEIGHT - 5, w: CAR_WIDTH - 16, h: CAR_HEIGHT - 10 }; 
       
       for (let obs of state.obstacles) {
-        const obsRect = { x: obs.x, y: obs.y, w: obs.width, h: obs.height };
+        const obsRect = { x: obs.x + 5, y: obs.y + 5, w: obs.width - 10, h: obs.height - 10 };
         if (
           playerRect.x < obsRect.x + obsRect.w &&
           playerRect.x + playerRect.w > obsRect.x &&
@@ -524,12 +558,8 @@ const RacingGame = ({ onBack }) => {
       return false;
     };
 
-    if (state.p1.alive && checkCollision(state.p1)) {
-      state.p1.alive = false;
-    }
-    if (mode === 2 && state.p2.alive && checkCollision(state.p2)) {
-      state.p2.alive = false;
-    }
+    if (state.p1.alive && checkCollision(state.p1)) state.p1.alive = false;
+    if (mode === 2 && state.p2.alive && checkCollision(state.p2)) state.p2.alive = false;
 
     // 4. 遊戲結束判斷
     if (mode === 1) {
@@ -540,7 +570,6 @@ const RacingGame = ({ onBack }) => {
         return;
       }
     } else {
-      // 雙人模式：只要有人死掉，活著的人贏。如果同時死掉，平手。
       if (!state.p1.alive && !state.p2.alive) {
         setWinner('DRAW');
         setGameStatus('gameover');
@@ -559,33 +588,43 @@ const RacingGame = ({ onBack }) => {
       }
     }
 
-    // 強制 React 重新渲染以更新畫面 (每幀都做會比較耗效能，但這是最簡單的實作方式)
-    // 為了優化，我們可以使用 requestAnimationFrame 但只在 state 改變時 setDummyState
-    // 但因為要移動位置，所以必須重新渲染
     setDummyState(prev => prev + 1);
-    
     state.frameId = requestAnimationFrame(gameLoop);
   };
 
-  const [dummyState, setDummyState] = useState(0); // 用來觸發畫面更新
+  const [dummyState, setDummyState] = useState(0); 
 
-  // 清理
   useEffect(() => {
     return () => cancelAnimationFrame(gameStateRef.current.frameId);
   }, []);
 
-  // 手機觸控控制 (僅單人)
-  const handleTouch = (side) => {
-    if (mode === 1 && gameStateRef.current.p1.alive) {
-      const moveAmount = 20;
-      if (side === 'left' && gameStateRef.current.p1.x > 0) gameStateRef.current.p1.x -= moveAmount;
-      if (side === 'right' && gameStateRef.current.p1.x < GAME_WIDTH - CAR_WIDTH) gameStateRef.current.p1.x += moveAmount;
+  // 觸控邏輯更新 (支援雙人)
+  const handleTouch = (zone) => {
+    // zone: 'p1-left', 'p1-right', 'p2-left', 'p2-right'
+    const state = gameStateRef.current;
+    const moveAmount = 25;
+    const halfWidth = GAME_WIDTH / 2;
+
+    if (mode === 1 && state.p1.alive) {
+       // 單人全螢幕
+       if ((zone === 'p1-left' || zone === 'p2-left') && state.p1.x > 0) state.p1.x -= moveAmount;
+       if ((zone === 'p1-right' || zone === 'p2-right') && state.p1.x < GAME_WIDTH - CAR_WIDTH) state.p1.x += moveAmount;
+    } else {
+       // 雙人分區
+       if (state.p1.alive) {
+          if (zone === 'p1-left' && state.p1.x > 0) state.p1.x -= moveAmount;
+          if (zone === 'p1-right' && state.p1.x < halfWidth - CAR_WIDTH - 2) state.p1.x += moveAmount;
+       }
+       if (state.p2.alive) {
+          if (zone === 'p2-left' && state.p2.x > halfWidth + 2) state.p2.x -= moveAmount;
+          if (zone === 'p2-right' && state.p2.x < GAME_WIDTH - CAR_WIDTH) state.p2.x += moveAmount;
+       }
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full">
-      <div className="flex justify-between w-full max-w-md items-center mb-4">
+    <div className="flex flex-col items-center justify-center w-full py-10">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
         <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18} /></Button>
         <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Car className="text-red-500" /> 激速賽車</h2>
         <Button onClick={() => setGameStatus('menu')} variant="secondary" className="!px-3"><RotateCcw size={18} /></Button>
@@ -595,52 +634,44 @@ const RacingGame = ({ onBack }) => {
 
       <div 
         className="relative bg-slate-800 border-4 border-slate-700 rounded-lg overflow-hidden shadow-2xl touch-none"
-        style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}
+        style={{ width: 'min(95vw, 360px)', height: 'min(80vh, 500px)' }}
       >
         {/* 道路背景 */}
         <div className="absolute inset-0 bg-slate-600 flex justify-center">
+           {/* 中線 */}
            <div className="h-full w-2 bg-dashed border-r-2 border-l-2 border-slate-400 opacity-30" style={{ borderStyle: 'dashed' }}></div>
+           {/* 雙人模式的分隔線 */}
+           {mode === 2 && <div className="absolute h-full w-[2px] bg-yellow-400 z-0 opacity-50"></div>}
            <div className="absolute inset-0 bg-gradient-to-b from-black/50 to-transparent h-20"></div>
         </div>
 
-        {/* 遊戲中畫面 */}
+        {/* 遊戲物件 */}
         {gameStatus !== 'menu' && (
           <>
-            {/* 障礙物 */}
             {gameStateRef.current.obstacles.map(obs => (
               <div 
                 key={obs.id}
-                className="absolute flex items-center justify-center text-3xl"
+                className="absolute flex items-center justify-center text-3xl z-10"
                 style={{ left: obs.x, top: obs.y, width: obs.width, height: obs.height }}
               >
                 {obs.type}
               </div>
             ))}
 
-            {/* 玩家 1 */}
             {gameStateRef.current.p1.alive && (
               <div 
-                className="absolute text-4xl transition-transform"
-                style={{ 
-                  left: gameStateRef.current.p1.x, 
-                  top: GAME_HEIGHT - CAR_HEIGHT - 10,
-                  transform: `translateX(${gameStateRef.current.keysPressed['KeyA'] ? '-5px' : gameStateRef.current.keysPressed['KeyD'] ? '5px' : '0'}) rotate(${gameStateRef.current.keysPressed['KeyA'] ? '-10deg' : gameStateRef.current.keysPressed['KeyD'] ? '10deg' : '0'})` 
-                }}
+                className="absolute text-4xl transition-transform z-10"
+                style={{ left: gameStateRef.current.p1.x, top: GAME_HEIGHT - CAR_HEIGHT - 10 }}
               >
                 🏎️
                 {mode === 2 && <div className="absolute -top-6 left-0 text-xs font-bold text-blue-300 bg-black/50 px-1 rounded">P1</div>}
               </div>
             )}
 
-            {/* 玩家 2 */}
             {mode === 2 && gameStateRef.current.p2.alive && (
               <div 
-                className="absolute text-4xl transition-transform"
-                style={{ 
-                  left: gameStateRef.current.p2.x, 
-                  top: GAME_HEIGHT - CAR_HEIGHT - 10,
-                  transform: `translateX(${gameStateRef.current.keysPressed['ArrowLeft'] ? '-5px' : gameStateRef.current.keysPressed['ArrowRight'] ? '5px' : '0'}) rotate(${gameStateRef.current.keysPressed['ArrowLeft'] ? '-10deg' : gameStateRef.current.keysPressed['ArrowRight'] ? '10deg' : '0'})` 
-                }}
+                className="absolute text-4xl transition-transform z-10"
+                style={{ left: gameStateRef.current.p2.x, top: GAME_HEIGHT - CAR_HEIGHT - 10 }}
               >
                 🚙
                 <div className="absolute -top-6 left-0 text-xs font-bold text-red-300 bg-black/50 px-1 rounded">P2</div>
@@ -649,54 +680,75 @@ const RacingGame = ({ onBack }) => {
           </>
         )}
 
-        {/* 遊戲選單 Menu */}
+        {/* 選單 Menu */}
         {gameStatus === 'menu' && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-6 p-6 z-20">
-             <div className="text-center">
+          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-6 z-20">
+             <div className="text-center mb-6">
                <h3 className="text-3xl font-bold text-white mb-2 italic transform -skew-x-12">TURBO RACING</h3>
-               <p className="text-slate-400 text-sm">閃避障礙物，存活下去！</p>
+             </div>
+
+             {/* 難度選擇 */}
+             <div className="w-full mb-6">
+               <p className="text-slate-400 text-sm mb-2 text-center">選擇難度</p>
+               <div className="grid grid-cols-3 gap-2">
+                 {['easy', 'normal', 'hard'].map(diff => (
+                   <button 
+                    key={diff}
+                    onClick={() => setDifficulty(diff)}
+                    className={`p-2 rounded-lg text-sm font-bold capitalize transition-all ${difficulty === diff ? 'bg-yellow-500 text-black' : 'bg-slate-700 text-slate-400'}`}
+                   >
+                     {diff === 'easy' ? '簡單' : diff === 'normal' ? '普通' : '困難'}
+                   </button>
+                 ))}
+               </div>
              </div>
              
              <div className="w-full space-y-3">
-                <button onClick={() => startGame(1)} className="w-full bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-xl font-bold flex items-center justify-between group">
-                   <div className="flex items-center gap-3">
+                <button onClick={() => startGame(1)} className="w-full bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-xl font-bold flex items-center justify-between group">
+                   <div className="flex items-center gap-2">
                      <span className="bg-white/20 p-2 rounded-lg">👤</span>
-                     <div className="text-left">
-                       <div className="text-lg">單人挑戰</div>
-                       <div className="text-xs text-blue-200 font-normal">操控：A / D 鍵或點擊螢幕</div>
-                     </div>
+                     <span>單人挑戰</span>
                    </div>
-                   <Play size={20} className="group-hover:translate-x-1 transition-transform"/>
+                   <Play size={18}/>
                 </button>
 
-                <button onClick={() => startGame(2)} className="w-full bg-red-600 hover:bg-red-500 text-white p-4 rounded-xl font-bold flex items-center justify-between group">
-                   <div className="flex items-center gap-3">
+                <button onClick={() => startGame(2)} className="w-full bg-red-600 hover:bg-red-500 text-white p-3 rounded-xl font-bold flex items-center justify-between group">
+                   <div className="flex items-center gap-2">
                      <span className="bg-white/20 p-2 rounded-lg">👥</span>
-                     <div className="text-left">
-                       <div className="text-lg">雙人對決</div>
-                       <div className="text-xs text-red-200 font-normal">P1: A/D  |  P2: ⬅️/➡️</div>
-                     </div>
+                     <span>雙人對決</span>
                    </div>
-                   <Play size={20} className="group-hover:translate-x-1 transition-transform"/>
+                   <Play size={18}/>
                 </button>
              </div>
           </div>
         )}
 
-        {/* 觸控區域 (透明) - 僅單人模式有效 */}
-        {gameStatus === 'playing' && mode === 1 && (
-           <div className="absolute inset-0 flex z-10">
-              <div className="w-1/2 h-full active:bg-white/5 transition-colors" onTouchStart={() => handleTouch('left')} onClick={() => handleTouch('left')}></div>
-              <div className="w-1/2 h-full active:bg-white/5 transition-colors" onTouchStart={() => handleTouch('right')} onClick={() => handleTouch('right')}></div>
+        {/* 觸控區域 - 支援雙人觸控 */}
+        {gameStatus === 'playing' && (
+           <div className="absolute inset-0 z-30 flex">
+              {/* 左半邊 P1 */}
+              <div className="w-1/2 h-full flex border-r border-white/5">
+                <div className="w-1/2 h-full active:bg-blue-500/10" onTouchStart={(e) => { e.preventDefault(); handleTouch('p1-left'); }} onClick={() => handleTouch('p1-left')}></div>
+                <div className="w-1/2 h-full active:bg-blue-500/10" onTouchStart={(e) => { e.preventDefault(); handleTouch('p1-right'); }} onClick={() => handleTouch('p1-right')}></div>
+              </div>
+              {/* 右半邊 P2 */}
+              <div className="w-1/2 h-full flex">
+                <div className="w-1/2 h-full active:bg-red-500/10" onTouchStart={(e) => { e.preventDefault(); handleTouch('p2-left'); }} onClick={() => handleTouch('p2-left')}></div>
+                <div className="w-1/2 h-full active:bg-red-500/10" onTouchStart={(e) => { e.preventDefault(); handleTouch('p2-right'); }} onClick={() => handleTouch('p2-right')}></div>
+              </div>
            </div>
         )}
+      </div>
+
+      <div className="mt-4 text-center text-slate-500 text-xs w-full max-w-sm px-4">
+         {mode === 2 ? "觸控說明：左半螢幕控制 P1，右半螢幕控制 P2" : "點擊螢幕左/右兩側即可移動"}
       </div>
 
       <Modal 
         isOpen={gameStatus === 'gameover'} 
         title={winner === 'GAME_OVER' ? "💥 發生車禍！" : "🏆 比賽結束"}
         message={
-          winner === 'GAME_OVER' ? `你的得分是 ${score} 分` :
+          winner === 'GAME_OVER' ? `難度：${difficulty === 'easy' ? '簡單' : difficulty === 'normal' ? '普通' : '困難'}\n得分：${score}` :
           winner === 'DRAW' ? "兩敗俱傷！這是個平局。" :
           `恭喜 ${winner === 'P1' ? '玩家 1 (藍車)' : '玩家 2 (紅車)'} 獲勝！\n堅持了 ${score} 分`
         }
@@ -719,28 +771,28 @@ const App = () => {
     {
       id: 'racing',
       title: '激速賽車',
-      description: '單人挑戰極限，或與朋友雙人同屏競技，看誰能閃避更多障礙！',
+      description: '支援單人/雙人競技，多種難度可選。觸控與鍵盤皆可遊玩。',
       icon: <Car size={40} className="text-red-500" />,
       color: 'from-red-500/20 to-orange-500/10 border-red-500/30'
     },
     {
       id: 'snake',
       title: '貪吃蛇',
-      description: '控制小蛇吃掉蘋果並不斷變長，小心不要撞到牆壁或自己！',
+      description: '經典遊戲，支援手機虛擬按鍵控制。',
       icon: <Ghost size={40} className="text-green-400" />,
       color: 'from-green-500/20 to-emerald-500/10 border-green-500/30'
     },
     {
       id: 'tictactoe',
       title: '井字遊戲',
-      description: '經典的 OX 棋局，挑戰連成一線的智慧。',
+      description: '經典的 OX 棋局，支援觸控操作。',
       icon: <Grid3X3 size={40} className="text-blue-400" />,
       color: 'from-blue-500/20 to-cyan-500/10 border-blue-500/30'
     },
     {
       id: 'memory',
       title: '記憶翻牌',
-      description: '考驗你的短期記憶，找出所有相同的卡片配對。',
+      description: '點擊翻牌，考驗你的短期記憶。',
       icon: <Brain size={40} className="text-purple-400" />,
       color: 'from-purple-500/20 to-pink-500/10 border-purple-500/30'
     }
@@ -757,11 +809,12 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
+    // 修正：外層容器設定為 w-full min-h-screen 以填滿整個視窗背景
+    <div className="w-full min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
       
       {/* 頂部導航列 */}
-      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 sticky top-0 z-40 w-full">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2" onClick={() => setActiveGame(null)}>
             <div className="bg-gradient-to-tr from-blue-500 to-purple-600 p-2 rounded-lg">
               <Gamepad2 size={24} className="text-white" />
@@ -771,19 +824,20 @@ const App = () => {
             </h1>
           </div>
           <div className="flex gap-4 text-sm font-medium text-slate-400">
-             <span>v1.1.0</span>
+             <span>v1.4.0</span>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4 md:p-8 flex flex-col items-center min-h-[calc(100vh-80px)]">
+      {/* 內容區域：限制最大寬度並置中 */}
+      <main className="w-full max-w-7xl mx-auto p-4 md:p-8 flex flex-col items-center min-h-[calc(100vh-80px)]">
         {activeGame ? (
           <div className="w-full flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-500">
             {renderGame()}
           </div>
         ) : (
           <div className="w-full">
-            <div className="text-center mb-12">
+            <div className="text-center mb-12 py-10">
               <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">
                 準備好 <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">開始玩樂</span> 了嗎？
               </h2>
@@ -829,7 +883,7 @@ const App = () => {
         )}
       </main>
 
-      <footer className="border-t border-slate-800 mt-auto py-6 text-center text-slate-500 text-sm">
+      <footer className="border-t border-slate-800 mt-auto py-6 text-center text-slate-500 text-sm w-full">
         <p>&copy; {new Date().getFullYear()} GameBox Studio. Enjoy your time!</p>
       </footer>
 
