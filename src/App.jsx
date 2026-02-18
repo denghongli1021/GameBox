@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3X3, Ghost, Brain, Car, Users, Zap, Gauge, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car } from 'lucide-react';
 
 /**
- * GameBox v1.4.0 - 最終完整版
- * 包含：
- * 1. 賽車遊戲：難度選擇、雙人邊界限制、觸控分區
- * 2. 版面修復：解決右側灰色留白問題 (w-full)
- * 3. 貪吃蛇：防止網頁捲動、優化手機控制
+ * GameBox v1.5.1 - 緊急修復版
+ * 1. 修正 Grid3X3 -> Grid3x3 (大小寫錯誤導致崩潰)
+ * 2. 清理未使用的圖標引用
  */
 
 // --- 共用組件 ---
@@ -107,7 +105,7 @@ const TicTacToe = ({ onBack }) => {
     <div className="flex flex-col items-center justify-center min-h-full py-10 w-full">
       <div className="flex justify-between w-full max-w-md items-center mb-6 px-4">
         <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18} /></Button>
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Grid3X3 className="text-blue-400" /> 井字遊戲</h2>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Grid3x3 className="text-blue-400" /> 井字遊戲</h2>
         <Button onClick={resetGame} variant="secondary" className="!px-3"><RotateCcw size={18} /></Button>
       </div>
 
@@ -786,7 +784,7 @@ const App = () => {
       id: 'tictactoe',
       title: '井字遊戲',
       description: '經典的 OX 棋局，支援觸控操作。',
-      icon: <Grid3X3 size={40} className="text-blue-400" />,
+      icon: <Grid3x3 size={40} className="text-blue-400" />,
       color: 'from-blue-500/20 to-cyan-500/10 border-blue-500/30'
     },
     {
@@ -809,8 +807,8 @@ const App = () => {
   };
 
   return (
-    // 修正：外層容器設定為 w-full min-h-screen 以填滿整個視窗背景
-    <div className="w-full min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30">
+    // 修正：這裡是最外層的容器，使用 w-full 和 overflow-x-hidden
+    <div className="w-full min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-blue-500/30 overflow-x-hidden">
       
       {/* 頂部導航列 */}
       <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 sticky top-0 z-40 w-full">
@@ -824,12 +822,12 @@ const App = () => {
             </h1>
           </div>
           <div className="flex gap-4 text-sm font-medium text-slate-400">
-             <span>v1.4.0</span>
+             <span>v1.5.1</span>
           </div>
         </div>
       </header>
 
-      {/* 內容區域：限制最大寬度並置中 */}
+      {/* 內容區域 */}
       <main className="w-full max-w-7xl mx-auto p-4 md:p-8 flex flex-col items-center min-h-[calc(100vh-80px)]">
         {activeGame ? (
           <div className="w-full flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-500">

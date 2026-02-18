@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+body,
+#root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  /* 強制將背景色設為 slate-900 (#0f172a)，這樣就算內容不夠長，也不會有白邊 */
+  background-color: #0f172a;
+  /* 防止水平捲動軸出現，這也是造成右邊灰邊的原因之一 */
+  overflow-x: hidden;
+}
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
