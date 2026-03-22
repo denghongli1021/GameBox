@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot } from 'lucide-react';
+import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket } from 'lucide-react';
 
 // --- 共用組件 ---
 
@@ -1149,6 +1149,502 @@ const BreakoutGame = ({ onBack }) => {
   );
 };
 
+// --- 遊戲 9: 四子棋 (Connect Four) ---
+
+const ConnectFour = ({ onBack }) => {
+  const COLS = 7, ROWS = 6;
+  const [board, setBoard] = useState(() => Array(ROWS).fill(null).map(() => Array(COLS).fill(0)));
+  const [turn, setTurn] = useState(1);
+  const [winner, setWinner] = useState(null);
+  const [winLine, setWinLine] = useState([]);
+
+  const check4 = (b, r, c, p) => {
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+    for (const [dr, dc] of dirs) {
+      let cells = [];
+      for (let i = -3; i <= 3; i++) {
+        const nr = r+dr*i, nc = c+dc*i;
+        if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&b[nr][nc]===p) cells.push([nr,nc]);
+        else cells = [];
+        if (cells.length === 4) return cells;
+      }
+    }
+    return null;
+  };
+
+  const drop = col => {
+    if (winner) return;
+    let row = -1;
+    for (let r = ROWS-1; r >= 0; r--) if (!board[r][col]) { row = r; break; }
+    if (row === -1) return;
+    const nb = board.map(r => [...r]);
+    nb[row][col] = turn;
+    const win = check4(nb, row, col, turn);
+    if (win) { setWinner(turn); setWinLine(win); }
+    else if (nb.every(r => r.every(c => c !== 0))) setWinner('draw');
+    else setTurn(t => t===1 ? 2 : 1);
+    setBoard(nb);
+  };
+
+  const reset = () => {
+    setBoard(Array(ROWS).fill(null).map(() => Array(COLS).fill(0)));
+    setTurn(1); setWinner(null); setWinLine([]);
+  };
+
+  const isWin = (r, c) => winLine.some(([wr,wc]) => wr===r && wc===c);
+
+  return (
+    <div className="flex flex-col items-center w-full py-10">
+      <div className="flex justify-between w-full max-w-lg items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Swords className="text-blue-400"/> 四子棋</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+
+      <div className={`mb-5 px-6 py-2 rounded-full border font-bold text-lg transition-all
+        ${!winner ? (turn===1?'bg-red-500/20 border-red-500/50 text-red-400':'bg-yellow-500/20 border-yellow-500/50 text-yellow-400') : 'bg-slate-800 border-slate-700 text-white'}`}>
+        {winner
+          ? (winner==='draw' ? '平局！' : <span style={{color:winner===1?'#f87171':'#facc15'}}>玩家 {winner} 獲勝！🏆</span>)
+          : <span>玩家 <span style={{color:turn===1?'#f87171':'#facc15'}}>{turn}</span> 的回合</span>}
+      </div>
+
+      <div className="bg-blue-900 p-3 rounded-2xl shadow-2xl border-2 border-blue-700">
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {Array.from({length:COLS}, (_,c) => (
+            <button key={c} onClick={() => drop(c)} disabled={!!winner}
+              className={`h-8 rounded-lg text-sm font-bold transition-all touch-manipulation
+                ${!winner ? (turn===1?'hover:bg-red-500/40 text-red-300':'hover:bg-yellow-500/40 text-yellow-300') : 'text-slate-600'}`}>
+              ▼
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {board.map((row,r) => row.map((cell,c) => (
+            <div key={`${r}-${c}`}
+              className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 transition-all duration-300 cursor-pointer
+                ${cell===1 ? 'bg-red-500 border-red-300 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : ''}
+                ${cell===2 ? 'bg-yellow-400 border-yellow-200 shadow-[0_0_10px_rgba(234,179,8,0.5)]' : ''}
+                ${cell===0 ? 'bg-slate-900 border-slate-700 hover:bg-slate-800' : ''}
+                ${isWin(r,c) ? 'ring-4 ring-white scale-110' : ''}`}
+              onClick={() => drop(c)}
+            />
+          )))}
+        </div>
+      </div>
+
+      <p className="mt-4 text-slate-500 text-sm">
+        <span className="text-red-400 font-bold">●</span> P1 vs <span className="text-yellow-400 font-bold">●</span> P2 · 先連 4 子者獲勝
+      </p>
+      {winner && <Button onClick={reset} className="mt-4 px-8">再玩一次</Button>}
+    </div>
+  );
+};
+
+// --- 遊戲 10: 雙人貪吃蛇 ---
+
+const Snake2P = ({ onBack }) => {
+  const GRID = 20, SPEED = 140;
+  const gsRef = useRef(null);
+  const [, tick] = useState(0);
+  const [over, setOver] = useState(false);
+  const [running, setRunning] = useState(false);
+
+  const genFood = s => {
+    let f;
+    do {
+      f = { x: Math.floor(Math.random()*GRID), y: Math.floor(Math.random()*GRID) };
+    } while (s.p1.body.some(b=>b.x===f.x&&b.y===f.y) || s.p2.body.some(b=>b.x===f.x&&b.y===f.y));
+    s.food = f;
+  };
+
+  const initState = () => ({
+    p1: { body:[{x:4,y:10},{x:3,y:10},{x:2,y:10}], dir:{x:1,y:0}, next:{x:1,y:0}, score:0, alive:true },
+    p2: { body:[{x:15,y:10},{x:16,y:10},{x:17,y:10}], dir:{x:-1,y:0}, next:{x:-1,y:0}, score:0, alive:true },
+    food: {x:10,y:5}, intervalId: null,
+  });
+
+  const start = () => {
+    if (gsRef.current?.intervalId) clearInterval(gsRef.current.intervalId);
+    gsRef.current = initState();
+    setOver(false); setRunning(true);
+  };
+
+  useEffect(() => {
+    if (!running || !gsRef.current) return;
+    const s = gsRef.current;
+    const id = setInterval(() => {
+      const { p1, p2 } = s;
+      p1.dir = p1.next; p2.dir = p2.next;
+
+      const move = p => {
+        if (!p.alive) return;
+        const head = { x: p.body[0].x+p.dir.x, y: p.body[0].y+p.dir.y };
+        if (head.x<0||head.x>=GRID||head.y<0||head.y>=GRID) { p.alive=false; return; }
+        const nb = [head, ...p.body];
+        if (head.x===s.food.x && head.y===s.food.y) { p.score+=10; genFood(s); } else nb.pop();
+        p.body = nb;
+      };
+
+      move(p1); move(p2);
+
+      if (p1.alive && p1.body.slice(1).some(b=>b.x===p1.body[0].x&&b.y===p1.body[0].y)) p1.alive=false;
+      if (p2.alive && p2.body.slice(1).some(b=>b.x===p2.body[0].x&&b.y===p2.body[0].y)) p2.alive=false;
+      if (p1.alive && p2.body.some(b=>b.x===p1.body[0].x&&b.y===p1.body[0].y)) p1.alive=false;
+      if (p2.alive && p1.body.some(b=>b.x===p2.body[0].x&&b.y===p2.body[0].y)) p2.alive=false;
+
+      if (!p1.alive || !p2.alive) { clearInterval(id); setRunning(false); setOver(true); }
+      tick(p => p+1);
+    }, SPEED);
+    s.intervalId = id;
+    return () => clearInterval(id);
+  }, [running]);
+
+  useEffect(() => {
+    const kd = e => {
+      const s = gsRef.current; if (!s) return;
+      const { p1, p2 } = s;
+      if (e.key==='w'||e.key==='W') { if(p1.dir.y===0) p1.next={x:0,y:-1}; }
+      if (e.key==='s'||e.key==='S') { if(p1.dir.y===0) p1.next={x:0,y:1}; }
+      if (e.key==='a'||e.key==='A') { if(p1.dir.x===0) p1.next={x:-1,y:0}; }
+      if (e.key==='d'||e.key==='D') { if(p1.dir.x===0) p1.next={x:1,y:0}; }
+      if (e.key==='ArrowUp')    { e.preventDefault(); if(p2.dir.y===0) p2.next={x:0,y:-1}; }
+      if (e.key==='ArrowDown')  { e.preventDefault(); if(p2.dir.y===0) p2.next={x:0,y:1}; }
+      if (e.key==='ArrowLeft')  { e.preventDefault(); if(p2.dir.x===0) p2.next={x:-1,y:0}; }
+      if (e.key==='ArrowRight') { e.preventDefault(); if(p2.dir.x===0) p2.next={x:1,y:0}; }
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, []);
+
+  const setDir = (player, d) => {
+    const s = gsRef.current; if (!s) return;
+    const p = s[player];
+    if ((d.x!==0&&p.dir.x===0)||(d.y!==0&&p.dir.y===0)) p.next = d;
+  };
+
+  const s = gsRef.current || initState();
+  const result = over
+    ? (!s.p1.alive&&!s.p2.alive ? '平局！' : !s.p1.alive ? 'P2 (紅) 勝利！' : 'P1 (藍) 勝利！')
+    : '';
+
+  return (
+    <div className="flex flex-col items-center w-full py-8">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Ghost className="text-teal-400"/> 雙人貪吃蛇</h2>
+        <Button onClick={start} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+
+      <div className="flex gap-6 mb-4">
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-blue-500/40 text-center">
+          <div className="text-blue-400 text-xs font-bold">P1 藍</div>
+          <div className="text-2xl font-mono text-blue-400">{s.p1.score}</div>
+        </div>
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-red-500/40 text-center">
+          <div className="text-red-400 text-xs font-bold">P2 紅</div>
+          <div className="text-2xl font-mono text-red-400">{s.p2.score}</div>
+        </div>
+      </div>
+
+      <div className="relative bg-slate-900 border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl"
+        style={{ width:'min(90vw,400px)', height:'min(90vw,400px)' }}>
+        <div className="absolute inset-0 grid"
+          style={{ gridTemplateColumns:`repeat(${GRID},1fr)`, gridTemplateRows:`repeat(${GRID},1fr)` }}>
+          {s.p1.body.map((b,i) => (
+            <div key={`p1-${i}`} className={`${i===0?'bg-blue-400':'bg-blue-700'} rounded-sm`}
+              style={{ gridColumnStart:b.x+1, gridRowStart:b.y+1 }} />
+          ))}
+          {s.p2.body.map((b,i) => (
+            <div key={`p2-${i}`} className={`${i===0?'bg-red-400':'bg-red-700'} rounded-sm`}
+              style={{ gridColumnStart:b.x+1, gridRowStart:b.y+1 }} />
+          ))}
+          <div className="bg-yellow-400 rounded-full animate-pulse z-10"
+            style={{ gridColumnStart:s.food.x+1, gridRowStart:s.food.y+1 }} />
+        </div>
+        {!running && !over && (
+          <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20">
+            <div className="text-center">
+              <p className="text-white text-lg font-bold mb-1">雙蛇對決！</p>
+              <p className="text-slate-400 text-sm mb-4">碰牆 / 碰蛇身即落敗</p>
+              <Button onClick={start}><Play size={18}/> 開始</Button>
+            </div>
+          </div>
+        )}
+        {!s.p1.alive && running && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/80 px-3 py-1 rounded-full text-blue-400 text-sm font-bold z-20">P1 陣亡</div>
+        )}
+        {!s.p2.alive && running && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 px-3 py-1 rounded-full text-red-400 text-sm font-bold z-20">P2 陣亡</div>
+        )}
+      </div>
+
+      <div className="flex justify-between w-full max-w-xs px-4 mt-5 gap-4">
+        <div>
+          <p className="text-blue-400 text-xs text-center mb-1">P1 (WASD)</p>
+          <div className="grid grid-cols-3 gap-1">
+            <div/>
+            <HoldBtn onStart={() => setDir('p1',{x:0,y:-1})} onEnd={() => {}} className="w-11 h-11 text-base">▲</HoldBtn>
+            <div/>
+            <HoldBtn onStart={() => setDir('p1',{x:-1,y:0})} onEnd={() => {}} className="w-11 h-11 text-base">◀</HoldBtn>
+            <HoldBtn onStart={() => setDir('p1',{x:0,y:1})} onEnd={() => {}} className="w-11 h-11 text-base">▼</HoldBtn>
+            <HoldBtn onStart={() => setDir('p1',{x:1,y:0})} onEnd={() => {}} className="w-11 h-11 text-base">▶</HoldBtn>
+          </div>
+        </div>
+        <div>
+          <p className="text-red-400 text-xs text-center mb-1">P2 (方向鍵)</p>
+          <div className="grid grid-cols-3 gap-1">
+            <div/>
+            <HoldBtn onStart={() => setDir('p2',{x:0,y:-1})} onEnd={() => {}} className="w-11 h-11 text-base">▲</HoldBtn>
+            <div/>
+            <HoldBtn onStart={() => setDir('p2',{x:-1,y:0})} onEnd={() => {}} className="w-11 h-11 text-base">◀</HoldBtn>
+            <HoldBtn onStart={() => setDir('p2',{x:0,y:1})} onEnd={() => {}} className="w-11 h-11 text-base">▼</HoldBtn>
+            <HoldBtn onStart={() => setDir('p2',{x:1,y:0})} onEnd={() => {}} className="w-11 h-11 text-base">▶</HoldBtn>
+          </div>
+        </div>
+      </div>
+
+      <Modal
+        isOpen={over}
+        title={result.includes('P1') ? '🏆 P1 (藍) 勝利！' : result.includes('P2') ? '🏆 P2 (紅) 勝利！' : '🤝 平局！'}
+        message={`P1: ${s.p1.score} 分 | P2: ${s.p2.score} 分`}
+        onConfirm={start} confirmText="再來一局"
+        extraButtons={<Button onClick={onBack} variant="outline" className="w-full">回大廳</Button>}
+      />
+    </div>
+  );
+};
+
+// --- 遊戲 11: 太空對戰 ---
+
+const SpaceBattle = ({ onBack }) => {
+  const W = 360, H = 500;
+  const SHIP_W = 36, SHIP_H = 28;
+  const BULLET_W = 5, BULLET_H = 12;
+  const BSPEED = 8, SSPEED = 5, COOLDOWN = 22;
+  const P1_Y = H - 55, P2_Y = 55, MAX_HP = 5;
+
+  const canvasRef = useRef(null);
+  const [p1hp, setP1hp] = useState(MAX_HP);
+  const [p2hp, setP2hp] = useState(MAX_HP);
+  const [status, setStatus] = useState('menu');
+  const runRef = useRef(false);
+
+  const gs = useRef({
+    p1: { x:W/2, hp:MAX_HP, cd:0 }, p2: { x:W/2, hp:MAX_HP, cd:0 },
+    bullets: [], keys: {},
+    tc: { p1L:false, p1R:false, p1F:false, p2L:false, p2R:false, p2F:false },
+    frameId: null,
+    stars: Array.from({length:45}, () => ({ x:Math.random()*W, y:Math.random()*H, r:Math.random()*1.5+0.3 })),
+  });
+
+  useEffect(() => {
+    const kd = e => {
+      gs.current.keys[e.code] = true;
+      if (['ArrowLeft','ArrowRight'].includes(e.key) || ['Space','Enter'].includes(e.code)) e.preventDefault();
+    };
+    const ku = e => { gs.current.keys[e.code] = false; };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    return () => {
+      window.removeEventListener('keydown', kd);
+      window.removeEventListener('keyup', ku);
+      cancelAnimationFrame(gs.current.frameId);
+    };
+  }, []);
+
+  const drawShip = (ctx, x, y, color, pointUp) => {
+    ctx.fillStyle = color;
+    ctx.shadowBlur = 14; ctx.shadowColor = color;
+    ctx.beginPath();
+    if (pointUp) {
+      ctx.moveTo(x, y-SHIP_H/2);
+      ctx.lineTo(x-SHIP_W/2, y+SHIP_H/2);
+      ctx.lineTo(x, y+SHIP_H/4);
+      ctx.lineTo(x+SHIP_W/2, y+SHIP_H/2);
+    } else {
+      ctx.moveTo(x, y+SHIP_H/2);
+      ctx.lineTo(x-SHIP_W/2, y-SHIP_H/2);
+      ctx.lineTo(x, y-SHIP_H/4);
+      ctx.lineTo(x+SHIP_W/2, y-SHIP_H/2);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.ellipse(x, pointUp ? y+SHIP_H/2+3 : y-SHIP_H/2-3, 5, 3, 0, 0, Math.PI*2);
+    ctx.fill();
+  };
+
+  const drawScene = (ctx, s) => {
+    ctx.fillStyle = '#020817'; ctx.fillRect(0, 0, W, H);
+    s.stars.forEach(st => {
+      ctx.fillStyle = `rgba(255,255,255,${0.3+st.r*0.2})`;
+      ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+    ctx.setLineDash([8,8]);
+    ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
+    ctx.setLineDash([]);
+    // HP bars
+    const hw = 110;
+    ctx.fillStyle='#0f172a'; ctx.fillRect(8,H-20,hw,10);
+    ctx.fillStyle='#3b82f6'; ctx.fillRect(8,H-20,(s.p1.hp/MAX_HP)*hw,10);
+    ctx.strokeStyle='rgba(148,163,184,0.3)'; ctx.strokeRect(8,H-20,hw,10);
+    ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.font='8px sans-serif'; ctx.textAlign='left';
+    ctx.fillText(`P1  ${s.p1.hp}/${MAX_HP}`, 11, H-12);
+    ctx.fillStyle='#0f172a'; ctx.fillRect(W-hw-8,10,hw,10);
+    ctx.fillStyle='#ef4444'; ctx.fillRect(W-hw-8,10,(s.p2.hp/MAX_HP)*hw,10);
+    ctx.strokeStyle='rgba(148,163,184,0.3)'; ctx.strokeRect(W-hw-8,10,hw,10);
+    ctx.fillStyle='rgba(255,255,255,0.6)'; ctx.textAlign='right';
+    ctx.fillText(`P2  ${s.p2.hp}/${MAX_HP}`, W-11, 18);
+    // Bullets
+    s.bullets.forEach(b => {
+      const c = b.o===1 ? '#60a5fa' : '#f87171';
+      ctx.fillStyle=c; ctx.shadowBlur=8; ctx.shadowColor=c;
+      ctx.fillRect(b.x-BULLET_W/2, b.vy<0?b.y-BULLET_H:b.y, BULLET_W, BULLET_H);
+      ctx.shadowBlur=0;
+    });
+    drawShip(ctx, s.p1.x, P1_Y, '#3b82f6', true);
+    drawShip(ctx, s.p2.x, P2_Y, '#ef4444', false);
+  };
+
+  const startGame = () => {
+    cancelAnimationFrame(gs.current.frameId);
+    const s = gs.current;
+    s.p1={x:W/2,hp:MAX_HP,cd:0}; s.p2={x:W/2,hp:MAX_HP,cd:0};
+    s.bullets=[]; s.keys={};
+    s.tc={p1L:false,p1R:false,p1F:false,p2L:false,p2R:false,p2F:false};
+    setP1hp(MAX_HP); setP2hp(MAX_HP); setStatus('playing');
+    runRef.current = true;
+    spaceLoop();
+  };
+
+  const spaceLoop = () => {
+    if (!runRef.current) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const s = gs.current;
+    const k = s.keys, tc = s.tc;
+
+    if ((k['KeyA']||tc.p1L) && s.p1.x>SHIP_W/2) s.p1.x-=SSPEED;
+    if ((k['KeyD']||tc.p1R) && s.p1.x<W-SHIP_W/2) s.p1.x+=SSPEED;
+    if ((k['ArrowLeft']||tc.p2L) && s.p2.x>SHIP_W/2) s.p2.x-=SSPEED;
+    if ((k['ArrowRight']||tc.p2R) && s.p2.x<W-SHIP_W/2) s.p2.x+=SSPEED;
+
+    if (s.p1.cd>0) s.p1.cd--;
+    if ((k['KeyF']||k['Space']||tc.p1F) && s.p1.cd===0) {
+      s.bullets.push({x:s.p1.x, y:P1_Y-SHIP_H/2-2, vy:-BSPEED, o:1});
+      s.p1.cd=COOLDOWN;
+    }
+    if (s.p2.cd>0) s.p2.cd--;
+    if ((k['Enter']||k['NumpadEnter']||tc.p2F) && s.p2.cd===0) {
+      s.bullets.push({x:s.p2.x, y:P2_Y+SHIP_H/2+2, vy:BSPEED, o:2});
+      s.p2.cd=COOLDOWN;
+    }
+
+    s.bullets.forEach(b => b.y+=b.vy);
+
+    let p1hit=0, p2hit=0;
+    s.bullets = s.bullets.filter(b => {
+      if (b.y<-30||b.y>H+30) return false;
+      if (b.o===1 && Math.abs(b.y-P2_Y)<SHIP_H/2+4 && Math.abs(b.x-s.p2.x)<SHIP_W/2) { p2hit++; return false; }
+      if (b.o===2 && Math.abs(b.y-P1_Y)<SHIP_H/2+4 && Math.abs(b.x-s.p1.x)<SHIP_W/2) { p1hit++; return false; }
+      return true;
+    });
+    if (p2hit>0) { s.p2.hp=Math.max(0,s.p2.hp-p2hit); setP2hp(s.p2.hp); }
+    if (p1hit>0) { s.p1.hp=Math.max(0,s.p1.hp-p1hit); setP1hp(s.p1.hp); }
+
+    if (s.p1.hp<=0 || s.p2.hp<=0) {
+      runRef.current=false;
+      drawScene(ctx, s);
+      setStatus(s.p1.hp<=0 ? 'p2wins' : 'p1wins');
+      return;
+    }
+
+    drawScene(ctx, s);
+    s.frameId = requestAnimationFrame(spaceLoop);
+  };
+
+  const setTC = (k, v) => { gs.current.tc[k]=v; };
+  const isOver = status==='p1wins'||status==='p2wins';
+
+  return (
+    <div className="flex flex-col items-center w-full py-6">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Rocket className="text-indigo-400"/> 太空對戰</h2>
+        <Button onClick={() => { runRef.current=false; cancelAnimationFrame(gs.current.frameId); setStatus('menu'); }} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+
+      <div className="flex gap-8 mb-3">
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-blue-500/40 text-center">
+          <div className="text-blue-400 text-xs">P1 (藍)</div>
+          <div className="flex gap-0.5 mt-1">
+            {Array.from({length:MAX_HP}).map((_,i) => (
+              <div key={i} className={`w-4 h-4 rounded-sm ${i<p1hp?'bg-blue-500':'bg-slate-700'}`}/>
+            ))}
+          </div>
+        </div>
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-red-500/40 text-center">
+          <div className="text-red-400 text-xs">P2 (紅)</div>
+          <div className="flex gap-0.5 mt-1">
+            {Array.from({length:MAX_HP}).map((_,i) => (
+              <div key={i} className={`w-4 h-4 rounded-sm ${i<p2hp?'bg-red-500':'bg-slate-700'}`}/>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="relative rounded-lg overflow-hidden shadow-2xl border-2 border-slate-800">
+        <canvas ref={canvasRef} width={W} height={H} style={{display:'block', maxWidth:'95vw'}}/>
+        {status==='menu' && (
+          <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center px-6">
+            <h3 className="text-3xl font-bold text-white mb-3 tracking-widest">SPACE BATTLE</h3>
+            <div className="text-sm mb-6 text-center leading-6">
+              <p className="text-slate-400">P1 vs P2 · 先打掉對方全部 HP 獲勝</p>
+              <p className="text-blue-400 mt-1">P1: A/D 移動 · F / 空白鍵 射擊</p>
+              <p className="text-red-400">P2: ←/→ 移動 · Enter 射擊</p>
+            </div>
+            <Button onClick={startGame} className="px-8 py-3 text-lg"><Play size={20}/> 開始對戰</Button>
+          </div>
+        )}
+      </div>
+
+      {status==='playing' && (
+        <div className="mt-3 w-full max-w-sm px-4">
+          <div className="flex justify-between gap-2">
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-blue-400 text-xs">P1 下方</p>
+              <div className="flex gap-1">
+                <HoldBtn onStart={() => setTC('p1L',true)} onEnd={() => setTC('p1L',false)} className="w-12 h-12 text-xl">◀</HoldBtn>
+                <HoldBtn onStart={() => setTC('p1F',true)} onEnd={() => setTC('p1F',false)} className="w-12 h-12 text-xl bg-blue-800 border-blue-600">🔵</HoldBtn>
+                <HoldBtn onStart={() => setTC('p1R',true)} onEnd={() => setTC('p1R',false)} className="w-12 h-12 text-xl">▶</HoldBtn>
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-1">
+              <p className="text-red-400 text-xs">P2 上方</p>
+              <div className="flex gap-1">
+                <HoldBtn onStart={() => setTC('p2L',true)} onEnd={() => setTC('p2L',false)} className="w-12 h-12 text-xl">◀</HoldBtn>
+                <HoldBtn onStart={() => setTC('p2F',true)} onEnd={() => setTC('p2F',false)} className="w-12 h-12 text-xl bg-red-900 border-red-700">🔴</HoldBtn>
+                <HoldBtn onStart={() => setTC('p2R',true)} onEnd={() => setTC('p2R',false)} className="w-12 h-12 text-xl">▶</HoldBtn>
+              </div>
+            </div>
+          </div>
+          <p className="text-slate-600 text-xs text-center mt-1">按住移動 · 點按🔵🔴射擊</p>
+        </div>
+      )}
+
+      <Modal
+        isOpen={isOver}
+        title={status==='p1wins' ? '🏆 P1 (藍) 獲勝！' : '🏆 P2 (紅) 獲勝！'}
+        message="精彩對決！"
+        onConfirm={startGame} confirmText="再來一局"
+        extraButtons={<Button onClick={onBack} variant="outline" className="w-full">回大廳</Button>}
+      />
+    </div>
+  );
+};
+
 // --- 主應用 ---
 
 const App = () => {
@@ -1157,7 +1653,10 @@ const App = () => {
   const games = [
     { id:'fpracing',   title:'第一人稱賽車', desc:'偽3D視角！閃避前方車輛，3條命用完即結束。',    icon:<Car size={40} className="text-orange-400"/>,   color:'from-orange-500/20 to-red-500/10 border-orange-500/30', badge:'1P', hot:true },
     { id:'racing',     title:'俯視賽車',      desc:'支援單人/雙人競技，多種難度。持壓按鈕移動。',    icon:<Car size={40} className="text-red-500"/>,        color:'from-red-500/20 to-orange-500/10 border-red-500/30',    badge:'1-2P' },
-    { id:'pong',       title:'乒乓球',        desc:'經典桌球！單人挑戰 CPU 或雙人同樂。',            icon:<CircleDot size={40} className="text-cyan-400"/>, color:'from-cyan-500/20 to-blue-500/10 border-cyan-500/30',    badge:'1-2P' },
+    { id:'pong',        title:'乒乓球',        desc:'經典桌球！單人挑戰 CPU 或雙人同樂。',            icon:<CircleDot size={40} className="text-cyan-400"/>,  color:'from-cyan-500/20 to-blue-500/10 border-cyan-500/30',     badge:'1-2P' },
+    { id:'connectfour', title:'四子棋',        desc:'策略對戰！先在棋盤上連接 4 個棋子者獲勝。',      icon:<Swords size={40} className="text-blue-400"/>,    color:'from-blue-500/20 to-indigo-500/10 border-blue-500/30',   badge:'2P' },
+    { id:'snake2p',     title:'雙人貪吃蛇',   desc:'同屏雙蛇對決！碰牆或撞到對方蛇身即落敗。',      icon:<Ghost size={40} className="text-teal-400"/>,     color:'from-teal-500/20 to-green-500/10 border-teal-500/30',    badge:'2P' },
+    { id:'spacebattle', title:'太空對戰',      desc:'P1 vs P2 太空射擊！先打掉對方全部 HP 獲勝。',   icon:<Rocket size={40} className="text-indigo-400"/>,  color:'from-indigo-500/20 to-purple-500/10 border-indigo-500/30', badge:'2P' },
     { id:'snake',      title:'貪吃蛇',        desc:'滑動畫面或方向鍵控制，支援手機手勢。',            icon:<Ghost size={40} className="text-green-400"/>,   color:'from-green-500/20 to-emerald-500/10 border-green-500/30', badge:'1P' },
     { id:'breakout',   title:'打磚塊',        desc:'彈球破磚！清除全部磚塊即過關。',                 icon:<Zap size={40} className="text-yellow-400"/>,    color:'from-yellow-500/20 to-orange-500/10 border-yellow-500/30', badge:'1P' },
     { id:'whackamole', title:'打地鼠',        desc:'30 秒限時！用力敲打地鼠，手機超好玩。',           icon:<Target size={40} className="text-amber-400"/>,  color:'from-amber-500/20 to-yellow-500/10 border-amber-500/30', badge:'1P' },
@@ -1170,7 +1669,10 @@ const App = () => {
     switch (activeGame) {
       case 'fpracing':   return <FPRacingGame onBack={back} />;
       case 'racing':     return <RacingGame onBack={back} />;
-      case 'pong':       return <PongGame onBack={back} />;
+      case 'pong':        return <PongGame onBack={back} />;
+      case 'connectfour': return <ConnectFour onBack={back} />;
+      case 'snake2p':     return <Snake2P onBack={back} />;
+      case 'spacebattle': return <SpaceBattle onBack={back} />;
       case 'snake':      return <SnakeGame onBack={back} />;
       case 'breakout':   return <BreakoutGame onBack={back} />;
       case 'whackamole': return <WhackAMole onBack={back} />;
@@ -1190,7 +1692,7 @@ const App = () => {
             </div>
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">GameBox</h1>
           </div>
-          <span className="text-sm font-medium text-slate-400">v2.0 · {games.length} 款遊戲</span>
+          <span className="text-sm font-medium text-slate-400">v2.1 · {games.length} 款遊戲</span>
         </div>
       </header>
 
