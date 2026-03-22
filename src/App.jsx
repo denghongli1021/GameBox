@@ -1661,6 +1661,285 @@ const SpaceBattle = ({ onBack }) => {
   );
 };
 
+// --- 三消遊戲 ---
+const MatchThree = ({ onBack }) => {
+  const COLS=8, ROWS=8, NTYPES=6;
+  const COLORS=['#ef4444','#f97316','#fde047','#22c55e','#3b82f6','#a855f7'];
+  const SHAPES=['◆','●','▲','■','★','♥'];
+
+  const findMatches = (b) => {
+    const hit=new Set();
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS-2;c++){
+      if(b[r][c]!==null&&b[r][c]===b[r][c+1]&&b[r][c]===b[r][c+2]){
+        let e=c+2; while(e+1<COLS&&b[r][c]===b[r][e+1])e++;
+        for(let i=c;i<=e;i++) hit.add(`${r},${i}`);
+      }
+    }
+    for(let c=0;c<COLS;c++) for(let r=0;r<ROWS-2;r++){
+      if(b[r][c]!==null&&b[r][c]===b[r+1][c]&&b[r][c]===b[r+2][c]){
+        let e=r+2; while(e+1<ROWS&&b[r][c]===b[e+1][c])e++;
+        for(let i=r;i<=e;i++) hit.add(`${i},${c}`);
+      }
+    }
+    return [...hit].map(s=>{const[r,c]=s.split(',').map(Number);return{r,c};});
+  };
+
+  const applyGravity = (b) => {
+    const nb=b.map(r=>[...r]);
+    for(let c=0;c<COLS;c++){
+      let bot=ROWS-1;
+      for(let r=ROWS-1;r>=0;r--){if(nb[r][c]!==null){nb[bot][c]=nb[r][c];if(bot!==r)nb[r][c]=null;bot--;}}
+      while(bot>=0){nb[bot][c]=Math.floor(Math.random()*NTYPES);bot--;}
+    }
+    return nb;
+  };
+
+  const resolveAll = (b) => {
+    let cur=b, pts=0, cascade=0;
+    let m=findMatches(cur);
+    while(m.length>0){
+      pts+=m.length*10*(cascade+1);
+      cascade++;
+      const nb=cur.map(r=>[...r]);
+      m.forEach(({r,c})=>nb[r][c]=null);
+      cur=applyGravity(nb);
+      m=findMatches(cur);
+    }
+    return{board:cur,pts,cascade};
+  };
+
+  const initBoard = () => {
+    const b=Array.from({length:ROWS},()=>Array.from({length:COLS},()=>Math.floor(Math.random()*NTYPES)));
+    return resolveAll(b).board;
+  };
+
+  const [board,setBoard]=useState(initBoard);
+  const [sel,setSel]=useState(null);
+  const [flash,setFlash]=useState([]);
+  const [score,setScore]=useState(0);
+  const [busy,setBusy]=useState(false);
+  const [comboMsg,setComboMsg]=useState('');
+
+  const handleClick=(r,c)=>{
+    if(busy) return;
+    if(!sel){ setSel({r,c}); return; }
+    if(sel.r===r&&sel.c===c){ setSel(null); return; }
+    const dr=Math.abs(r-sel.r),dc=Math.abs(c-sel.c);
+    if(dr+dc!==1){ setSel({r,c}); return; }
+    const nb=board.map(row=>[...row]);
+    [nb[r][c],nb[sel.r][sel.c]]=[nb[sel.r][sel.c],nb[r][c]];
+    const m=findMatches(nb);
+    setSel(null);
+    if(m.length===0) return;
+    setBusy(true);
+    setFlash(m.map(({r,c})=>`${r},${c}`));
+    setTimeout(()=>{
+      const {board:resolved,pts,cascade}=resolveAll(nb);
+      setBoard(resolved);
+      setScore(s=>s+pts);
+      if(cascade>1) setComboMsg(`${cascade}連鎖！+${pts}`);
+      else setComboMsg('');
+      setFlash([]);
+      setBusy(false);
+      setTimeout(()=>setComboMsg(''),800);
+    },300);
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3 w-full max-w-sm mx-auto py-4">
+      <div className="flex items-center gap-3 w-full">
+        <Button onClick={onBack} variant="outline"><Home size={16}/></Button>
+        <h2 className="text-xl font-bold text-white flex-1 text-center">三消遊戲</h2>
+        <div className="bg-slate-800 px-3 py-1 rounded-lg border border-slate-700 text-center">
+          <div className="text-xs text-slate-400">分數</div>
+          <div className="font-bold text-yellow-400">{score}</div>
+        </div>
+        <Button onClick={()=>{setBoard(initBoard());setScore(0);setSel(null);}} variant="secondary"><RotateCcw size={16}/></Button>
+      </div>
+      {comboMsg&&<div className="text-yellow-300 font-bold text-lg animate-bounce">{comboMsg}</div>}
+      <div className="bg-slate-900 p-2 rounded-xl border border-slate-700">
+        <div style={{display:'grid',gridTemplateColumns:`repeat(${COLS},1fr)`,gap:3}}>
+          {board.map((row,r)=>row.map((gem,c)=>{
+            const key=`${r},${c}`;
+            const isSel=sel?.r===r&&sel?.c===c;
+            const isFlash=flash.includes(key);
+            return <button key={key} onClick={()=>handleClick(r,c)}
+              style={{background:isFlash?'#fff':COLORS[gem],width:38,height:38,borderRadius:8,fontSize:15,transition:'all 0.15s',transform:isSel?'scale(1.2)':isFlash?'scale(0.8)':'scale(1)',opacity:isFlash?0.5:1}}
+              className={`flex items-center justify-center font-bold text-white select-none touch-manipulation ${isSel?'ring-2 ring-white':''}`}>
+              {SHAPES[gem]}
+            </button>;
+          }))}
+        </div>
+      </div>
+      <p className="text-slate-500 text-xs">點選寶石，再點相鄰寶石交換 · 連鎖消除有加成</p>
+    </div>
+  );
+};
+
+// --- 切水果 ---
+const FruitNinja = ({ onBack }) => {
+  const W=360, H=500;
+  const canvasRef=useRef(null);
+  const gs=useRef(null);
+  const rafRef=useRef(null);
+  const [ui,setUi]=useState({score:0,lives:3,status:'idle',hi:0});
+
+  const FTYPES=[
+    {color:'#22c55e',inner:'#ef4444',r:26},
+    {color:'#f97316',inner:'#fcd34d',r:22},
+    {color:'#ef4444',inner:'#fef9c3',r:20},
+    {color:'#fde047',inner:'#fef3c7',r:18},
+    {color:'#a855f7',inner:'#ddd6fe',r:21},
+  ];
+
+  const initGs=()=>({fruits:[],blade:[],score:0,lives:3,tick:0,nextF:50,combo:0,comboTimer:0,status:'playing'});
+
+  const lineSeg=(p1,p2,cx,cy,r)=>{
+    const dx=p2.x-p1.x,dy=p2.y-p1.y,len2=dx*dx+dy*dy;
+    if(!len2) return Math.hypot(cx-p1.x,cy-p1.y)<r;
+    const t=Math.max(0,Math.min(1,((cx-p1.x)*dx+(cy-p1.y)*dy)/len2));
+    return Math.hypot(p1.x+t*dx-cx,p1.y+t*dy-cy)<r;
+  };
+
+  const draw=()=>{
+    const canvas=canvasRef.current; if(!canvas) return;
+    const ctx=canvas.getContext('2d');
+    const g=gs.current;
+    ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,W,H);
+
+    g.fruits.forEach(f=>{
+      if(f.sliced){
+        const progress=f.sliceTimer/25;
+        [-1,1].forEach((s,i)=>{
+          ctx.save();
+          ctx.translate(f.x+s*progress*18,f.y+progress*10);
+          ctx.rotate(f.angle+s*progress*1.2);
+          ctx.beginPath();
+          ctx.arc(0,0,f.r,i===0?0:Math.PI,i===0?Math.PI:Math.PI*2);
+          ctx.closePath();
+          ctx.fillStyle=i===0?f.color:f.inner;
+          ctx.fill();
+          ctx.restore();
+        });
+      } else {
+        ctx.beginPath(); ctx.arc(f.x,f.y,f.r,0,Math.PI*2);
+        ctx.fillStyle=f.color; ctx.fill();
+        ctx.beginPath(); ctx.arc(f.x-f.r*0.3,f.y-f.r*0.35,f.r*0.28,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,0.35)'; ctx.fill();
+      }
+    });
+
+    if(g.blade.length>1){
+      ctx.beginPath(); ctx.moveTo(g.blade[0].x,g.blade[0].y);
+      g.blade.forEach(p=>ctx.lineTo(p.x,p.y));
+      ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke();
+      ctx.strokeStyle='rgba(120,220,255,0.4)'; ctx.lineWidth=8; ctx.stroke();
+    }
+
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,28);
+    ctx.fillStyle='#f8fafc'; ctx.font='bold 14px sans-serif'; ctx.textAlign='left';
+    ctx.fillText(`分: ${g.score}`,8,19);
+    ctx.textAlign='right'; ctx.fillText('❤'.repeat(Math.max(0,g.lives)),W-8,19);
+    if(g.combo>1){
+      ctx.textAlign='center'; ctx.fillStyle='#fbbf24';
+      ctx.font=`bold ${Math.min(28,14+g.combo*2)}px sans-serif`;
+      ctx.globalAlpha=Math.min(1,g.comboTimer/15);
+      ctx.fillText(`COMBO x${g.combo}`,W/2,70);
+      ctx.globalAlpha=1;
+    }
+    if(g.status==='dead'){
+      ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#fff'; ctx.font='bold 28px sans-serif'; ctx.textAlign='center';
+      ctx.fillText('遊戲結束',W/2,H/2-16);
+      ctx.font='16px sans-serif'; ctx.fillText(`得分: ${g.score}`,W/2,H/2+12);
+    }
+  };
+
+  const loop=useCallback(()=>{
+    const g=gs.current;
+    if(g.status==='dead'){draw();return;}
+    g.tick++;
+    g.nextF--;
+    if(g.nextF<=0){
+      const ft=FTYPES[Math.floor(Math.random()*FTYPES.length)];
+      g.fruits.push({...ft,x:ft.r*2+Math.random()*(W-ft.r*4),y:H+ft.r,vx:(Math.random()-0.5)*3,vy:-(11+Math.random()*5),angle:0,sliced:false,sliceTimer:0,dx:(Math.random()>0.5?1:-1)*0.8,});
+      g.nextF=Math.max(18,50-Math.floor(g.score/200)*3);
+    }
+    g.fruits.forEach(f=>{f.x+=f.vx;f.y+=f.vy;f.vy+=0.32;f.angle+=0.04;if(f.sliced)f.sliceTimer++;});
+    g.fruits.forEach(f=>{
+      if(!f.sliced&&f.y>H+f.r+10&&!f.missed){
+        f.missed=true; g.lives--;
+        setUi(u=>({...u,lives:g.lives}));
+        if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:Math.max(u.hi,g.score)}));}
+      }
+    });
+    g.fruits=g.fruits.filter(f=>!(f.missed||(f.sliced&&f.sliceTimer>28)));
+    if(g.comboTimer>0) g.comboTimer--; else if(g.comboTimer===0) g.combo=0;
+    if(g.blade.length>1){
+      for(let i=0;i<g.blade.length-1;i++){
+        g.fruits.forEach(f=>{
+          if(f.sliced) return;
+          if(lineSeg(g.blade[i],g.blade[i+1],f.x,f.y,f.r)){
+            f.sliced=true; g.combo++; g.comboTimer=25;
+            g.score+=10*Math.max(1,g.combo);
+            setUi(u=>({...u,score:g.score}));
+          }
+        });
+      }
+    }
+    while(g.blade.length>18) g.blade.shift();
+    draw();
+    rafRef.current=requestAnimationFrame(loop);
+  },[]);
+
+  const startGame=()=>{
+    cancelAnimationFrame(rafRef.current);
+    gs.current=initGs();
+    setUi(u=>({...u,score:0,lives:3,status:'playing'}));
+    rafRef.current=requestAnimationFrame(loop);
+  };
+
+  const getPos=(e)=>{
+    const canvas=canvasRef.current;
+    const rect=canvas.getBoundingClientRect();
+    const sx=W/rect.width,sy=H/rect.height;
+    const src=e.touches?e.touches[0]:e;
+    return{x:(src.clientX-rect.left)*sx,y:(src.clientY-rect.top)*sy};
+  };
+
+  const onMove=(e)=>{
+    e.preventDefault();
+    if(!gs.current||gs.current.status!=='playing') return;
+    gs.current.blade.push(getPos(e));
+  };
+
+  useEffect(()=>()=>cancelAnimationFrame(rafRef.current),[]);
+
+  return (
+    <div className="flex flex-col items-center gap-3 w-full py-4">
+      <div className="flex items-center gap-3 w-full max-w-sm px-4">
+        <Button onClick={onBack} variant="outline"><Home size={16}/></Button>
+        <h2 className="text-xl font-bold text-white flex-1 text-center">切水果</h2>
+        <span className="text-yellow-400 font-bold text-sm">最高: {ui.hi}</span>
+      </div>
+      <div className="relative border-2 border-slate-700 rounded-lg overflow-hidden select-none"
+        style={{width:'100%',maxWidth:W,touchAction:'none'}}>
+        <canvas ref={canvasRef} width={W} height={H} style={{display:'block',width:'100%',cursor:'crosshair'}}
+          onMouseMove={onMove} onTouchMove={onMove}
+          onTouchStart={e=>{if(gs.current?.status==='dead'){startGame();}}}/>
+        {ui.status==='idle'&&<div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+          <Button onClick={startGame}><Play size={18}/>開始切！</Button>
+        </div>}
+        {ui.status==='dead'&&<div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+          <Button onClick={startGame}><RotateCcw size={16}/>再試</Button>
+          <Button onClick={onBack} variant="outline"><Home size={16}/>大廳</Button>
+        </div>}
+      </div>
+      <p className="text-slate-500 text-xs">滑動 / 手指劃過水果切開 · 連切有 COMBO 加成 · 漏掉水果失命</p>
+    </div>
+  );
+};
+
 // --- 俄羅斯方塊 ---
 const TETROMINOES = {
   I:{shape:[[1,1,1,1]],color:'#22d3ee'},
@@ -3215,6 +3494,8 @@ const App = () => {
   const [activeGame, setActiveGame] = useState(null);
 
   const games = [
+    { id:'matchthree',  title:'三消遊戲',      desc:'點選相鄰寶石交換，消除 3 個以上！連鎖有加成。',      icon:<Grid3x3 size={40} className="text-pink-400"/>,  color:'from-pink-500/20 to-rose-500/10 border-pink-500/30',    badge:'1P', hot:true },
+    { id:'fruitninja',  title:'切水果',        desc:'滑動切開水果！連切 COMBO 加分，漏掉水果扣命。',      icon:<Zap size={40} className="text-green-400"/>,    color:'from-green-500/20 to-teal-500/10 border-green-500/30',  badge:'1P', hot:true },
     { id:'tetris',      title:'俄羅斯方塊',   desc:'歷久彌新的神作！消行得分，節奏越來越快。支援手機。',  icon:<Layers size={40} className="text-cyan-400"/>,  color:'from-cyan-500/20 to-teal-500/10 border-cyan-500/30',    badge:'1P', hot:true },
     { id:'game2048',    title:'2048',          desc:'滑動合併數字，達到 2048！支援鍵盤與手機滑動。',       icon:<Grid3x3 size={40} className="text-orange-400"/>,color:'from-orange-500/20 to-yellow-500/10 border-orange-500/30',badge:'1P', hot:true },
     { id:'minesweeper', title:'踩地雷',        desc:'三種難度！右鍵插旗，找出所有地雷。經典益智遊戲。',   icon:<Target size={40} className="text-red-400"/>,   color:'from-red-500/20 to-rose-500/10 border-red-500/30',       badge:'1P', hot:true },
@@ -3239,6 +3520,8 @@ const App = () => {
   const renderGame = () => {
     const back = () => setActiveGame(null);
     switch (activeGame) {
+      case 'matchthree':   return <MatchThree onBack={back} />;
+      case 'fruitninja':   return <FruitNinja onBack={back} />;
       case 'tetris':       return <TetrisGame onBack={back} />;
       case 'game2048':     return <Game2048Wrapper onBack={back} />;
       case 'minesweeper':  return <Minesweeper onBack={back} />;
@@ -3272,7 +3555,7 @@ const App = () => {
             </div>
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">GameBox</h1>
           </div>
-          <span className="text-sm font-medium text-slate-400">v3.0 · {games.length} 款遊戲</span>
+          <span className="text-sm font-medium text-slate-400">v3.1 · {games.length} 款遊戲</span>
         </div>
       </header>
 
