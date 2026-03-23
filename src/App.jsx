@@ -416,13 +416,15 @@ const RacingGame = ({ onBack }) => {
               <div key={o.id} className="absolute flex items-center justify-center text-3xl z-10" style={{left:o.x,top:o.y,width:o.w,height:o.h}}>{o.t}</div>
             ))}
             {gs.current.p1.alive && (
-              <div className="absolute text-4xl z-10" style={{left:gs.current.p1.x, top:GH-CH-10}}>
-                🏎️{mode===2&&<div className="absolute -top-6 left-0 text-xs font-bold text-blue-300 bg-black/50 px-1 rounded">P1</div>}
+              <div className="absolute z-10" style={{left:gs.current.p1.x, top:GH-CH-10,width:CW,height:CH,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <span style={{fontSize:32,display:'inline-block',transform:'rotate(-90deg)',lineHeight:1}}>🏎️</span>
+                {mode===2&&<div className="absolute -top-6 left-0 text-xs font-bold text-blue-300 bg-black/50 px-1 rounded">P1</div>}
               </div>
             )}
             {mode===2 && gs.current.p2.alive && (
-              <div className="absolute text-4xl z-10" style={{left:gs.current.p2.x, top:GH-CH-10}}>
-                🚙<div className="absolute -top-6 left-0 text-xs font-bold text-red-300 bg-black/50 px-1 rounded">P2</div>
+              <div className="absolute z-10" style={{left:gs.current.p2.x, top:GH-CH-10,width:CW,height:CH,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <span style={{fontSize:32,display:'inline-block',transform:'rotate(-90deg)',lineHeight:1}}>🚙</span>
+                <div className="absolute -top-6 left-0 text-xs font-bold text-red-300 bg-black/50 px-1 rounded">P2</div>
               </div>
             )}
           </>
@@ -3488,6 +3490,59 @@ const DungeonCard = ({ onBack }) => {
   );
 };
 
+// --- 背景音樂 ---
+const MUSIC_SEQ = [
+  523,659,784,880,1047,880,784,659,
+  523,659,784,880, 784,659,523,440,
+  523,784,880,784, 659,523,440,523,
+  659,880,1047,880,784,659,523,523,
+];
+const MUSIC_BEAT = 0.1875; // 8th note @ BPM 160
+
+const BgMusic = () => {
+  const [on, setOn] = useState(false);
+  const st = useRef({ ctx: null, timer: null, active: false });
+
+  const loop = () => {
+    const { ctx, active } = st.current;
+    if (!ctx || !active) return;
+    let t = ctx.currentTime + 0.05;
+    MUSIC_SEQ.forEach(freq => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'square'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.055, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + MUSIC_BEAT * 0.82);
+      o.start(t); o.stop(t + MUSIC_BEAT);
+      t += MUSIC_BEAT;
+    });
+    st.current.timer = setTimeout(loop, (MUSIC_SEQ.length * MUSIC_BEAT - 0.6) * 1000);
+  };
+
+  const toggle = () => {
+    if (st.current.active) {
+      st.current.active = false;
+      clearTimeout(st.current.timer);
+      st.current.ctx?.close(); st.current.ctx = null;
+      setOn(false);
+    } else {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      st.current = { ctx, timer: null, active: true };
+      setOn(true);
+      loop();
+    }
+  };
+
+  useEffect(() => () => { clearTimeout(st.current.timer); st.current.ctx?.close(); }, []);
+
+  return (
+    <button onClick={toggle} title={on ? '關閉音樂' : '開啟背景音樂'}
+      className="fixed bottom-5 right-5 z-50 w-12 h-12 bg-slate-800/90 border border-slate-600 rounded-full flex items-center justify-center text-xl hover:bg-slate-700 active:scale-90 transition-all shadow-xl backdrop-blur-sm select-none">
+      {on ? '🔊' : '🔇'}
+    </button>
+  );
+};
+
 // --- 主應用 ---
 
 const App = () => {
@@ -3599,6 +3654,8 @@ const App = () => {
       <footer className="border-t border-slate-800 py-6 text-center text-slate-500 text-sm w-full">
         <p>&copy; {new Date().getFullYear()} GameBox Studio. Enjoy your time!</p>
       </footer>
+
+      <BgMusic />
 
       <style>{`
         .perspective-1000 { perspective: 1000px; }
