@@ -3803,8 +3803,9 @@ const PianoTiles = ({ onBack }) => {
 
   const initGs = () => {
     const tiles = [];
-    for (let i = 0; i < 6; i++) tiles.push({ col: Math.floor(Math.random() * COLS), y: H - (i+1) * TILE_H, hit: false });
-    return { tiles, score: 0, speed: 3, status: 'playing' };
+    // 起始全部放在螢幕上方，玩家有時間看清再反應（最底下那片要滑 2 個 TILE 才到危險區）
+    for (let i = 0; i < 6; i++) tiles.push({ col: Math.floor(Math.random() * COLS), y: -TILE_H * (i + 2), hit: false });
+    return { tiles, score: 0, speed: 2, status: 'playing' };
   };
 
   const draw = () => {
@@ -3855,7 +3856,7 @@ const PianoTiles = ({ onBack }) => {
     if (hit) {
       hit.hit = true;
       g.score++;
-      g.speed = Math.min(12, 3 + g.score * 0.08);
+      g.speed = Math.min(8, 2 + g.score * 0.04);
       setUi(u => ({ ...u, score: g.score }));
     } else {
       g.status = 'dead';
