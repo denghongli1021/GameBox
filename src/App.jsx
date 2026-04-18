@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket, Shield, Layers } from 'lucide-react';
+import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket, Shield, Layers, Timer, Hash, Music, Hand } from 'lucide-react';
 import { version as APP_VERSION } from '../package.json';
 
 // --- 共用組件 ---
@@ -3526,6 +3526,386 @@ const DungeonCard = ({ onBack }) => {
   );
 };
 
+// --- 五子棋 ---
+const Gomoku = ({ onBack }) => {
+  const SIZE = 15;
+  const [board, setBoard] = useState(() => Array.from({length: SIZE}, () => Array(SIZE).fill(null)));
+  const [turn, setTurn] = useState('black');
+  const [winner, setWinner] = useState(null);
+  const [moveCount, setMoveCount] = useState(0);
+
+  const checkWin = (b, r, c, p) => {
+    for (const [dr, dc] of [[0,1],[1,0],[1,1],[1,-1]]) {
+      const line = [[r, c]];
+      for (const sign of [1, -1]) {
+        let nr = r + dr * sign, nc = c + dc * sign;
+        while (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE && b[nr][nc] === p) {
+          line.push([nr, nc]); nr += dr * sign; nc += dc * sign;
+        }
+      }
+      if (line.length >= 5) return line;
+    }
+    return null;
+  };
+
+  const place = (r, c) => {
+    if (winner || board[r][c]) return;
+    const nb = board.map(row => [...row]);
+    nb[r][c] = turn;
+    const mc = moveCount + 1;
+    setBoard(nb); setMoveCount(mc);
+    const line = checkWin(nb, r, c, turn);
+    if (line) setWinner({ player: turn, line });
+    else if (mc === SIZE * SIZE) setWinner({ draw: true });
+    else setTurn(turn === 'black' ? 'white' : 'black');
+  };
+
+  const reset = () => { setBoard(Array.from({length: SIZE}, () => Array(SIZE).fill(null))); setTurn('black'); setWinner(null); setMoveCount(0); };
+  const lineSet = new Set((winner?.line || []).map(([r, c]) => `${r},${c}`));
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><CircleDot className="text-amber-400"/>五子棋</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="text-base font-bold text-white mb-3 bg-slate-800/50 px-4 py-1 rounded-full border border-slate-700/50">
+        {winner?.draw ? '平手！' : winner ? `${winner.player === 'black' ? '⚫ 黑子' : '⚪ 白子'} 獲勝！` :
+          <>輪到: {turn === 'black' ? '⚫ 黑子' : '⚪ 白子'}</>}
+      </div>
+      <div className="bg-amber-700 p-1.5 rounded-lg shadow-2xl">
+        <div className="grid" style={{gridTemplateColumns:`repeat(${SIZE}, minmax(0, 1fr))`, gap:1, width:'min(92vw, 480px)'}}>
+          {board.flat().map((cell, idx) => {
+            const r = Math.floor(idx / SIZE), c = idx % SIZE;
+            const hit = lineSet.has(`${r},${c}`);
+            return (
+              <button key={idx} onClick={() => place(r, c)} disabled={!!winner || !!cell}
+                className="aspect-square bg-amber-600 hover:bg-amber-500 flex items-center justify-center transition-colors touch-manipulation">
+                {cell && <span className={`rounded-full ${cell === 'black' ? 'bg-slate-900' : 'bg-slate-100'} ${hit ? 'ring-2 ring-red-500' : ''}`} style={{width:'85%', height:'85%'}}/>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <p className="text-slate-500 mt-3 text-xs">橫/豎/斜連 5 顆即獲勝</p>
+    </div>
+  );
+};
+
+// --- 15 數字推盤 ---
+const FifteenPuzzle = ({ onBack }) => {
+  const SIZE = 4, TOTAL = SIZE * SIZE;
+  const isWin = arr => arr.every((v, i) => v === (i + 1) % TOTAL);
+
+  const shuffle = () => {
+    const arr = Array.from({length: TOTAL}, (_, i) => (i + 1) % TOTAL);
+    let blank = TOTAL - 1;
+    for (let step = 0; step < 250; step++) {
+      const r = Math.floor(blank/SIZE), c = blank%SIZE;
+      const nbrs = [];
+      if (r > 0) nbrs.push(blank - SIZE);
+      if (r < SIZE-1) nbrs.push(blank + SIZE);
+      if (c > 0) nbrs.push(blank - 1);
+      if (c < SIZE-1) nbrs.push(blank + 1);
+      const pick = nbrs[Math.floor(Math.random()*nbrs.length)];
+      [arr[blank], arr[pick]] = [arr[pick], arr[blank]];
+      blank = pick;
+    }
+    return arr;
+  };
+
+  const [tiles, setTiles] = useState(shuffle);
+  const [moves, setMoves] = useState(0);
+  const [best, setBest] = useState(() => bestStorage.load('fifteen'));
+  const won = isWin(tiles);
+
+  const tap = i => {
+    if (won) return;
+    const blank = tiles.indexOf(0);
+    const r1 = Math.floor(blank/SIZE), c1 = blank%SIZE;
+    const r2 = Math.floor(i/SIZE), c2 = i%SIZE;
+    if (Math.abs(r1-r2) + Math.abs(c1-c2) !== 1) return;
+    const nt = [...tiles];
+    [nt[blank], nt[i]] = [nt[i], nt[blank]];
+    const nm = moves + 1;
+    setTiles(nt); setMoves(nm);
+    if (isWin(nt) && (best === 0 || nm < best)) { bestStorage.save('fifteen', nm); setBest(nm); }
+  };
+
+  const reset = () => { setTiles(shuffle()); setMoves(0); };
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Hash className="text-indigo-400"/>數字推盤</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="flex gap-4 mb-4">
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700 text-center"><div className="text-slate-400 text-xs">步數</div><div className="text-2xl font-mono font-bold text-indigo-400">{moves}</div></div>
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700 text-center"><div className="text-slate-400 text-xs">最佳</div><div className="text-2xl font-mono font-bold text-yellow-400">{best || '—'}</div></div>
+      </div>
+      <div className="bg-slate-800 p-2 rounded-xl border border-slate-700">
+        <div className="grid grid-cols-4 gap-2" style={{width:'min(85vw, 360px)'}}>
+          {tiles.map((v, i) => (
+            <button key={i} onClick={() => tap(i)} disabled={v === 0}
+              className={`aspect-square rounded-lg text-2xl sm:text-3xl font-bold transition-all touch-manipulation ${v === 0 ? 'bg-transparent' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white hover:from-indigo-400 hover:to-purple-500 active:scale-95 shadow-md'}`}>
+              {v || ''}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-slate-500 mt-3 text-xs">點擊空格旁的數字滑動，按順序排到 1-15</p>
+      <Modal isOpen={won} title="🎉 完成！" message={`總步數：${moves}${best && moves <= best ? '\n🏆 最佳記錄！' : ''}`} onConfirm={reset} confirmText="再玩一次" />
+    </div>
+  );
+};
+
+// --- 反應力測試 ---
+const ReactionTest = ({ onBack }) => {
+  const [phase, setPhase] = useState('idle');
+  const [result, setResult] = useState(0);
+  const [best, setBest] = useState(() => bestStorage.load('reaction'));
+  const timerRef = useRef(null);
+  const startRef = useRef(0);
+
+  const begin = () => {
+    setPhase('wait');
+    const delay = 1000 + Math.random() * 3000;
+    timerRef.current = setTimeout(() => { setPhase('go'); startRef.current = performance.now(); }, delay);
+  };
+
+  const click = () => {
+    if (phase === 'idle' || phase === 'result' || phase === 'early') return begin();
+    if (phase === 'wait') { clearTimeout(timerRef.current); setPhase('early'); return; }
+    if (phase === 'go') {
+      const ms = Math.round(performance.now() - startRef.current);
+      setResult(ms);
+      if (best === 0 || ms < best) { bestStorage.save('reaction', ms); setBest(ms); }
+      setPhase('result');
+    }
+  };
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const cfg = {
+    idle:   { bg:'bg-blue-600',   msg:'點擊開始',      sub:'畫面變綠色時盡快點擊' },
+    wait:   { bg:'bg-red-600',    msg:'等待中...',     sub:'看到綠色再點！' },
+    go:     { bg:'bg-green-500',  msg:'點！',          sub:'' },
+    result: { bg:'bg-blue-600',   msg:`${result} ms`,  sub: best && result <= best ? '🏆 新記錄！點擊再測一次' : '點擊再測一次' },
+    early:  { bg:'bg-orange-500', msg:'太早了！',      sub:'點擊重新嘗試' },
+  }[phase];
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Timer className="text-yellow-400"/>反應力測試</h2>
+        <div className="w-10"/>
+      </div>
+      <div className="text-slate-400 mb-3 text-sm">最佳: {best ? `${best} ms` : '—'}</div>
+      <button onClick={click}
+        className={`${cfg.bg} transition-colors rounded-2xl flex flex-col items-center justify-center text-white font-bold shadow-2xl select-none touch-manipulation active:scale-95`}
+        style={{width:'min(90vw, 420px)', height:'min(90vw, 420px)'}}>
+        <div className="text-4xl sm:text-5xl mb-2">{cfg.msg}</div>
+        {cfg.sub && <div className="text-sm sm:text-base opacity-90 px-4 text-center">{cfg.sub}</div>}
+      </button>
+    </div>
+  );
+};
+
+// --- 剪刀石頭布 ---
+const RPS = ({ onBack }) => {
+  const CHOICES = [
+    { id:'rock', emoji:'✊', name:'石頭' },
+    { id:'paper', emoji:'✋', name:'布' },
+    { id:'scissors', emoji:'✌️', name:'剪刀' },
+  ];
+  const BEATS = { rock:'scissors', paper:'rock', scissors:'paper' };
+
+  const [player, setPlayer] = useState(null);
+  const [cpu, setCpu] = useState(null);
+  const [result, setResult] = useState('');
+  const [wins, setWins] = useState(0);
+  const [losses, setLosses] = useState(0);
+  const [draws, setDraws] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [best, setBest] = useState(() => bestStorage.load('rps'));
+
+  const play = choice => {
+    const cpuPick = CHOICES[Math.floor(Math.random() * 3)];
+    setPlayer(choice); setCpu(cpuPick);
+    if (choice.id === cpuPick.id) { setDraws(d => d + 1); setResult('draw'); }
+    else if (BEATS[choice.id] === cpuPick.id) {
+      setWins(w => w + 1);
+      setStreak(s => { const ns = s + 1; if (ns > best) { bestStorage.save('rps', ns); setBest(ns); } return ns; });
+      setResult('win');
+    } else { setLosses(l => l + 1); setStreak(0); setResult('lose'); }
+  };
+
+  const reset = () => { setPlayer(null); setCpu(null); setResult(''); setWins(0); setLosses(0); setDraws(0); setStreak(0); };
+
+  const resText = { win:'你贏了！', lose:'你輸了', draw:'平手' }[result];
+  const resColor = { win:'text-green-400', lose:'text-red-400', draw:'text-slate-300' }[result];
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Hand className="text-pink-400"/>剪刀石頭布</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="grid grid-cols-4 gap-2 mb-6 w-full max-w-md px-4">
+        {[
+          {label:'勝', val:wins, color:'text-green-400'},
+          {label:'敗', val:losses, color:'text-red-400'},
+          {label:'和', val:draws, color:'text-slate-300'},
+          {label:'連勝', val:`${streak}/${best}`, color:'text-yellow-400'},
+        ].map(s => (
+          <div key={s.label} className="bg-slate-800 px-2 py-2 rounded-lg border border-slate-700 text-center">
+            <div className="text-slate-400 text-xs">{s.label}</div>
+            <div className={`text-lg font-bold ${s.color}`}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-center gap-4 sm:gap-8 mb-6 min-h-[120px]">
+        <div className="text-center">
+          <div className="text-xs text-slate-400 mb-2">你</div>
+          <div className="text-6xl sm:text-7xl">{player?.emoji || '❔'}</div>
+        </div>
+        <div className={`text-xl sm:text-2xl font-bold ${resColor}`}>{result ? resText : 'VS'}</div>
+        <div className="text-center">
+          <div className="text-xs text-slate-400 mb-2">CPU</div>
+          <div className="text-6xl sm:text-7xl">{cpu?.emoji || '❔'}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 w-full max-w-md px-4">
+        {CHOICES.map(c => (
+          <button key={c.id} onClick={() => play(c)}
+            className="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 rounded-2xl py-4 flex flex-col items-center gap-1 transition-all active:scale-95 touch-manipulation">
+            <span className="text-5xl">{c.emoji}</span>
+            <span className="text-slate-300 text-sm">{c.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- 別踩白塊 Piano Tiles ---
+const PianoTiles = ({ onBack }) => {
+  const W = 320, H = 480, COLS = 4, TILE_H = 120;
+  const canvasRef = useRef(null);
+  const gs = useRef(null);
+  const rafRef = useRef(null);
+  const [ui, setUi] = useState(() => ({ score: 0, status: 'idle', hi: bestStorage.load('pianotiles') }));
+
+  const initGs = () => {
+    const tiles = [];
+    for (let i = 0; i < 6; i++) tiles.push({ col: Math.floor(Math.random() * COLS), y: H - (i+1) * TILE_H, hit: false });
+    return { tiles, score: 0, speed: 3, status: 'playing' };
+  };
+
+  const draw = () => {
+    const ctx = canvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const g = gs.current;
+    ctx.fillStyle = '#f1f5f9'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1;
+    for (let i = 1; i < COLS; i++) { ctx.beginPath(); ctx.moveTo(i*W/COLS, 0); ctx.lineTo(i*W/COLS, H); ctx.stroke(); }
+    if (g) {
+      g.tiles.forEach(t => {
+        if (t.hit) return;
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(t.col * W/COLS + 2, t.y, W/COLS - 4, TILE_H - 4);
+      });
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(0, H - 3, W, 3);
+    }
+  };
+
+  const loop = useCallback(() => {
+    const g = gs.current;
+    if (!g || g.status !== 'playing') { draw(); return; }
+    g.tiles.forEach(t => { t.y += g.speed; });
+    const missed = g.tiles.find(t => !t.hit && t.y >= H);
+    if (missed) {
+      g.status = 'dead';
+      setUi(u => ({ ...u, score: g.score, status: 'dead', hi: updateBest('pianotiles', u.hi, g.score) }));
+      draw(); return;
+    }
+    g.tiles = g.tiles.filter(t => t.y < H + TILE_H);
+    while (g.tiles.length < 6) {
+      const highest = g.tiles.reduce((min, t) => Math.min(min, t.y), H);
+      g.tiles.push({ col: Math.floor(Math.random() * COLS), y: highest - TILE_H, hit: false });
+    }
+    draw();
+    rafRef.current = requestAnimationFrame(loop);
+  }, []);
+
+  const tap = (clientX, clientY) => {
+    const g = gs.current;
+    if (!g || g.status !== 'playing') return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (clientX - rect.left) * W / rect.width;
+    const y = (clientY - rect.top) * H / rect.height;
+    const col = Math.floor(x / (W / COLS));
+    const hit = g.tiles.find(t => !t.hit && t.col === col && y >= t.y && y <= t.y + TILE_H);
+    if (hit) {
+      hit.hit = true;
+      g.score++;
+      g.speed = Math.min(12, 3 + g.score * 0.08);
+      setUi(u => ({ ...u, score: g.score }));
+    } else {
+      g.status = 'dead';
+      setUi(u => ({ ...u, score: g.score, status: 'dead', hi: updateBest('pianotiles', u.hi, g.score) }));
+    }
+  };
+
+  const start = () => {
+    cancelAnimationFrame(rafRef.current);
+    gs.current = initGs();
+    setUi(u => ({ ...u, score: 0, status: 'playing' }));
+    rafRef.current = requestAnimationFrame(loop);
+  };
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Music className="text-fuchsia-400"/>別踩白塊</h2>
+        <Button onClick={start} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="flex gap-4 mb-3">
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700 text-center"><div className="text-slate-400 text-xs">分數</div><div className="text-2xl font-mono font-bold text-fuchsia-400">{ui.score}</div></div>
+        <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700 text-center"><div className="text-slate-400 text-xs">最高</div><div className="text-2xl font-mono font-bold text-yellow-400">{ui.hi}</div></div>
+      </div>
+      <div className="relative border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl" style={{width:'min(90vw,320px)', aspectRatio:'320/480', touchAction:'none'}}>
+        <canvas ref={canvasRef} width={W} height={H} style={{display:'block', width:'100%', height:'100%'}}
+          onTouchStart={e => { e.preventDefault(); const t = e.touches[0]; tap(t.clientX, t.clientY); }}
+          onMouseDown={e => tap(e.clientX, e.clientY)}/>
+        {ui.status === 'idle' && (
+          <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3">
+            <p className="text-slate-300 text-sm text-center px-4">點擊下移的黑色方塊<br/>點到白色區即失敗</p>
+            <Button onClick={start}><Play size={18}/>開始遊戲</Button>
+          </div>
+        )}
+        {ui.status === 'dead' && (
+          <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center gap-3">
+            <p className="text-2xl font-bold text-red-400">GAME OVER</p>
+            <p className="text-slate-300">分數 {ui.score}</p>
+            <Button onClick={start}><RotateCcw size={18}/>再試一次</Button>
+            <Button onClick={onBack} variant="outline"><Home size={16}/>大廳</Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- 背景音樂 ---
 const MUSIC_SEQ = [
   523,659,784,880,1047,880,784,659,
@@ -3607,6 +3987,11 @@ const App = () => {
     { id:'whackamole', title:'打地鼠',        desc:'30 秒限時！用力敲打地鼠，手機超好玩。',           icon:<Target size={40} className="text-amber-400"/>,  color:'from-amber-500/20 to-yellow-500/10 border-amber-500/30', badge:'1P' },
     { id:'memory',     title:'記憶翻牌',      desc:'點擊翻牌配對，考驗短期記憶。',                   icon:<Brain size={40} className="text-purple-400"/>,  color:'from-purple-500/20 to-pink-500/10 border-purple-500/30', badge:'1P' },
     { id:'tictactoe',  title:'井字遊戲',      desc:'兩人輪流落子，連線即獲勝。',                     icon:<Grid3x3 size={40} className="text-blue-400"/>,  color:'from-blue-500/20 to-cyan-500/10 border-blue-500/30',    badge:'2P' },
+    { id:'pianotiles', title:'別踩白塊',      desc:'點擊下落的黑磚！越快速度越快，踩白即失敗。',     icon:<Music size={40} className="text-fuchsia-400"/>, color:'from-fuchsia-500/20 to-purple-500/10 border-fuchsia-500/30', badge:'1P', hot:true },
+    { id:'reaction',   title:'反應力測試',   desc:'畫面變綠時盡快點擊！個人最佳反應時間紀錄。',     icon:<Timer size={40} className="text-yellow-400"/>,  color:'from-yellow-500/20 to-amber-500/10 border-yellow-500/30', badge:'1P', hot:true },
+    { id:'fifteen',    title:'15 數字推盤',  desc:'經典推盤益智！把 1-15 按順序排好，步數越少越厲害。', icon:<Hash size={40} className="text-indigo-400"/>,   color:'from-indigo-500/20 to-purple-500/10 border-indigo-500/30', badge:'1P', hot:true },
+    { id:'rps',        title:'剪刀石頭布',   desc:'對戰 CPU 考人品！連勝次數會永久記錄。',          icon:<Hand size={40} className="text-pink-400"/>,     color:'from-pink-500/20 to-rose-500/10 border-pink-500/30',    badge:'1P', hot:true },
+    { id:'gomoku',     title:'五子棋',        desc:'15×15 雙人對戰，橫豎斜連 5 顆即勝利。',          icon:<CircleDot size={40} className="text-amber-400"/>,color:'from-amber-500/20 to-yellow-500/10 border-amber-500/30', badge:'2P', hot:true },
   ];
 
   const renderGame = () => {
@@ -3633,6 +4018,11 @@ const App = () => {
       case 'whackamole': return <WhackAMole onBack={back} />;
       case 'memory':     return <MemoryGame onBack={back} />;
       case 'tictactoe':  return <TicTacToe onBack={back} />;
+      case 'pianotiles': return <PianoTiles onBack={back} />;
+      case 'reaction':   return <ReactionTest onBack={back} />;
+      case 'fifteen':    return <FifteenPuzzle onBack={back} />;
+      case 'rps':        return <RPS onBack={back} />;
+      case 'gomoku':     return <Gomoku onBack={back} />;
       default: return null;
     }
   };

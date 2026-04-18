@@ -2,7 +2,7 @@
   "homepage": "https://denghongli1021.github.io/game-box",
   "name": "game-box",
   "private": true,
-  "version": "3.1.0",
+  "version": "3.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
