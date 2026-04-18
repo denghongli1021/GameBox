@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket, Shield, Layers } from 'lucide-react';
+import { version as APP_VERSION } from '../package.json';
 
 // --- 共用組件 ---
 
@@ -43,6 +44,36 @@ const HoldBtn = ({ onStart, onEnd, children, className = "" }) => (
     onMouseLeave={onEnd}
   >{children}</div>
 );
+
+// 最高分持久化
+const bestStorage = {
+  load: key => { try { return Number(localStorage.getItem(`gb.best.${key}`)) || 0; } catch { return 0; } },
+  save: (key, v) => { try { localStorage.setItem(`gb.best.${key}`, String(v)); } catch { /* quota/privacy mode */ } },
+};
+const updateBest = (key, current, candidate) => {
+  const next = Math.max(current, candidate);
+  if (next !== current) bestStorage.save(key, next);
+  return next;
+};
+
+// 任一遊戲爆 runtime error 時顯示 fallback，避免白屏整站
+class GameErrorBoundary extends React.Component {
+  state = { err: null };
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error('Game crashed:', err, info); }
+  reset = () => { this.setState({ err: null }); this.props.onBack?.(); };
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="text-5xl">💥</div>
+        <h3 className="text-xl font-bold text-white">這款遊戲出了點意外</h3>
+        <p className="text-slate-400 text-sm">{String(this.state.err?.message || this.state.err)}</p>
+        <button onClick={this.reset} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg">回大廳</button>
+      </div>
+    );
+  }
+}
 
 // --- 遊戲 1: 井字遊戲 ---
 
@@ -108,9 +139,12 @@ const SnakeGame = ({ onBack }) => {
   const [dir, setDir] = useState({ x: 0, y: 0 });
   const [gameOver, setGameOver] = useState(false);
   const [score, setScore] = useState(0);
-  const [best, setBest] = useState(0);
+  const [best, setBest] = useState(() => bestStorage.load('snake'));
   const [paused, setPaused] = useState(true);
   const touch = useRef(null);
+  // 讓 tick 讀最新的 dir/food/score，避免 interval 每 tick 都被重建
+  const tickRef = useRef({ dir, food, score });
+  useEffect(() => { tickRef.current = { dir, food, score }; });
 
   useEffect(() => {
     const onKey = e => {
@@ -139,25 +173,26 @@ const SnakeGame = ({ onBack }) => {
     if (paused || gameOver) return;
     const t = setInterval(() => {
       setSnake(prev => {
-        const head = { x: prev[0].x + dir.x, y: prev[0].y + dir.y };
-        if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID || prev.some(s => s.x === head.x && s.y === head.y)) {
+        const { dir: d, food: f, score: s } = tickRef.current;
+        const head = { x: prev[0].x + d.x, y: prev[0].y + d.y };
+        if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID || prev.some(p => p.x === head.x && p.y === head.y)) {
           setGameOver(true); setPaused(true);
-          setBest(b => Math.max(b, score));
+          setBest(b => updateBest('snake', b, s));
           return prev;
         }
         const ns = [head, ...prev];
-        if (head.x === food.x && head.y === food.y) {
-          setScore(s => s + 10);
+        if (head.x === f.x && head.y === f.y) {
+          setScore(v => v + 10);
           let nf;
           do { nf = { x: Math.floor(Math.random()*GRID), y: Math.floor(Math.random()*GRID) }; }
-          while (ns.some(s => s.x === nf.x && s.y === nf.y));
+          while (ns.some(p => p.x === nf.x && p.y === nf.y));
           setFood(nf);
         } else ns.pop();
         return ns;
       });
     }, SPEED);
     return () => clearInterval(t);
-  }, [dir, paused, gameOver, food, score]);
+  }, [paused, gameOver]);
 
   const reset = () => { setSnake([{x:10,y:10}]); setDir({x:0,y:0}); setScore(0); setGameOver(false); setPaused(true); setFood({x:15,y:10}); };
   const ctrl = d => swipe(d);
@@ -904,7 +939,7 @@ const WhackAMole = ({ onBack }) => {
   const TOTAL = 9, TIME = 30;
   const [moles, setMoles] = useState(Array(TOTAL).fill(false));
   const [score, setScore] = useState(0);
-  const [best, setBest] = useState(0);
+  const [best, setBest] = useState(() => bestStorage.load('whackamole'));
   const [timeLeft, setTimeLeft] = useState(TIME);
   const [running, setRunning] = useState(false);
   const [over, setOver] = useState(false);
@@ -936,7 +971,7 @@ const WhackAMole = ({ onBack }) => {
           clearInterval(spawn); clearInterval(countdown);
           moleTimers.current.forEach(clearTimeout);
           setMoles(Array(TOTAL).fill(false));
-          setBest(b => Math.max(b, scoreRef.current));
+          setBest(b => updateBest('whackamole', b, scoreRef.current));
           setRunning(false); setOver(true);
           return 0;
         }
@@ -1784,7 +1819,7 @@ const FruitNinja = ({ onBack }) => {
   const canvasRef=useRef(null);
   const gs=useRef(null);
   const rafRef=useRef(null);
-  const [ui,setUi]=useState({score:0,lives:3,status:'idle',hi:0});
+  const [ui,setUi]=useState(()=>({score:0,lives:3,status:'idle',hi:bestStorage.load('fruitninja')}));
 
   const FTYPES=[
     {color:'#22c55e',inner:'#ef4444',r:26},
@@ -1872,7 +1907,7 @@ const FruitNinja = ({ onBack }) => {
       if(!f.sliced&&f.y>H+f.r+10&&!f.missed){
         f.missed=true; g.lives--;
         setUi(u=>({...u,lives:g.lives}));
-        if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:Math.max(u.hi,g.score)}));}
+        if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:updateBest('fruitninja',u.hi,g.score)}));}
       }
     });
     g.fruits=g.fruits.filter(f=>!(f.missed||(f.sliced&&f.sliceTimer>28)));
@@ -2041,6 +2076,23 @@ const TetrisGame = ({ onBack }) => {
     }
   };
 
+  // placePiece 只操作 gs ref，沒有實際依賴，所以 useCallback([]) 安全穩定
+  const placePiece=useCallback((g)=>{
+    g.board=lock(g.board,g.piece.shape,g.piece.x,g.piece.y,g.piece.color);
+    const {board:nb,cleared}=clearLines(g.board);
+    g.board=nb;
+    const pts=[0,100,300,500,800][cleared]||0;
+    g.lines+=cleared; g.score+=pts*(g.level);
+    g.level=Math.floor(g.lines/10)+1;
+    g.dropInterval=Math.max(8,48-g.level*4);
+    const next=g.next;
+    g.next=randPiece();
+    const np=spawnPiece(next);
+    if(!fits(g.board,np.shape,np.x,np.y)){ g.status='dead'; setUi(u=>({...u,score:g.score,lines:g.lines,level:g.level,status:'dead'})); return; }
+    g.piece=np;
+    setUi(u=>({...u,score:g.score,lines:g.lines,level:g.level,next:g.next}));
+  },[]);
+
   const loop=useCallback(()=>{
     const g=gs.current;
     if(g.status!=='playing'){draw();return;}
@@ -2063,23 +2115,7 @@ const TetrisGame = ({ onBack }) => {
     }
     draw();
     rafRef.current=requestAnimationFrame(loop);
-  },[]);
-
-  const placePiece=(g)=>{
-    g.board=lock(g.board,g.piece.shape,g.piece.x,g.piece.y,g.piece.color);
-    const {board:nb,cleared}=clearLines(g.board);
-    g.board=nb;
-    const pts=[0,100,300,500,800][cleared]||0;
-    g.lines+=cleared; g.score+=pts*(g.level);
-    g.level=Math.floor(g.lines/10)+1;
-    g.dropInterval=Math.max(8,48-g.level*4);
-    const next=g.next;
-    g.next=randPiece();
-    const np=spawnPiece(next);
-    if(!fits(g.board,np.shape,np.x,np.y)){ g.status='dead'; setUi(u=>({...u,score:g.score,lines:g.lines,level:g.level,status:'dead'})); return; }
-    g.piece=np;
-    setUi(u=>({...u,score:g.score,lines:g.lines,level:g.level,next:g.next}));
-  };
+  },[placePiece]);
 
   const startGame=()=>{
     cancelAnimationFrame(rafRef.current);
@@ -2113,7 +2149,7 @@ const TetrisGame = ({ onBack }) => {
     };
     window.addEventListener('keydown',kd);
     return()=>window.removeEventListener('keydown',kd);
-  },[loop]);
+  },[placePiece]);
 
   // swipe gestures
   const touchRef=useRef({});
@@ -2194,7 +2230,7 @@ const Game2048 = () => {
 
   const [board,setBoard]=useState(newBoard);
   const [score,setScore]=useState(0);
-  const [best,setBest]=useState(0);
+  const [best,setBest]=useState(() => bestStorage.load('game2048'));
   const [status,setStatus]=useState('playing'); // playing/won/lost
   const touchRef=useRef({});
 
@@ -2229,7 +2265,7 @@ const Game2048 = () => {
       const changed=nb.some((r,ri)=>r.some((c,ci)=>c!==prev[ri][ci]));
       if(!changed) return prev;
       const withNew=addRand(nb);
-      setScore(s=>{ const ns=s+totalPts; setBest(b=>Math.max(b,ns)); return ns; });
+      setScore(s=>{ const ns=s+totalPts; setBest(b=>updateBest('game2048',b,ns)); return ns; });
       if(withNew.some(r=>r.includes(2048))) setStatus('won');
       else {
         // check if any move possible
@@ -2472,7 +2508,7 @@ const SpaceShooter = ({ onBack }) => {
   const canvasRef=useRef(null);
   const gs=useRef(null);
   const rafRef=useRef(null);
-  const [ui,setUi]=useState({score:0,lives:3,status:'idle',hi:0});
+  const [ui,setUi]=useState(()=>({score:0,lives:3,status:'idle',hi:bestStorage.load('spaceshooter')}));
 
   const initGs=()=>({
     ship:{x:W/2,y:H-60,vx:0},
@@ -2577,7 +2613,7 @@ const SpaceShooter = ({ onBack }) => {
       });
       // boss bullets hit player
       if(g.shieldTime<=0) g.boss&&g.boss.eBullets.forEach(b=>{
-        if(Math.hypot(b.x-g.ship.x,b.y-g.ship.y)<22){ b.dead=true; g.lives--; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:Math.max(u.hi,g.score)}));} }
+        if(Math.hypot(b.x-g.ship.x,b.y-g.ship.y)<22){ b.dead=true; g.lives--; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:updateBest('spaceshooter',u.hi,g.score)}));} }
       });
       if(g.boss) g.boss.eBullets=g.boss.eBullets.filter(b=>!b.dead);
     }
@@ -2603,11 +2639,11 @@ const SpaceShooter = ({ onBack }) => {
     // enemy bullets hit player
     if(g.shieldTime>0) g.shieldTime--; else {
       g.enemies.forEach(e=>e.eBullets.forEach(b=>{
-        if(Math.hypot(b.x-g.ship.x,b.y-g.ship.y)<22){ b.dead=true; g.lives--; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:Math.max(u.hi,g.score)}));} }
+        if(Math.hypot(b.x-g.ship.x,b.y-g.ship.y)<22){ b.dead=true; g.lives--; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:updateBest('spaceshooter',u.hi,g.score)}));} }
       }));
       g.enemies.forEach(e=>e.eBullets=e.eBullets.filter(b=>!b.dead));
       // enemy reaches bottom
-      g.enemies.forEach(e=>{ if(e.y>H-20&&!e.hitPlayer){ e.hitPlayer=true; g.lives--; e.dead=true; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:Math.max(u.hi,g.score)}));} } });
+      g.enemies.forEach(e=>{ if(e.y>H-20&&!e.hitPlayer){ e.hitPlayer=true; g.lives--; e.dead=true; setUi(u=>({...u,lives:g.lives})); if(g.lives<=0){g.status='dead';setUi(u=>({...u,status:'dead',hi:updateBest('spaceshooter',u.hi,g.score)}));} } });
     }
 
     // powerups
@@ -2669,7 +2705,7 @@ const DinoRun = ({ onBack }) => {
   const canvasRef=useRef(null);
   const gs=useRef(null);
   const rafRef=useRef(null);
-  const [ui,setUi]=useState({score:0,status:'idle',hi:0});
+  const [ui,setUi]=useState(()=>({score:0,status:'idle',hi:bestStorage.load('dinorun')}));
 
   const initGs=()=>({
     dino:{x:60,y:GY,vy:0,onGround:true,ducking:false,frame:0},
@@ -2768,7 +2804,7 @@ const DinoRun = ({ onBack }) => {
       const oh=o.type==='cactus'?40:14;
       if(d.x+4<o.x+o.w-4&&d.x+26>o.x+4&&d.y+40-dh<o.y+oh&&d.y+40>o.y){
         g.status='dead';
-        setUi(u=>({...u,score:Math.floor(g.score),status:'dead',hi:Math.max(u.hi,Math.floor(g.score))}));
+        setUi(u=>({...u,score:Math.floor(g.score),status:'dead',hi:updateBest('dinorun',u.hi,Math.floor(g.score))}));
         draw(); return;
       }
     }
@@ -2821,7 +2857,7 @@ const FlappyBird = ({ onBack }) => {
   const canvasRef=useRef(null);
   const gs=useRef(null);
   const rafRef=useRef(null);
-  const [ui,setUi]=useState({score:0,status:'idle',hi:0});
+  const [ui,setUi]=useState(()=>({score:0,status:'idle',hi:bestStorage.load('flappybird')}));
 
   const initGs=()=>({
     bird:{x:80,y:H/2,vy:0},
@@ -2897,12 +2933,12 @@ const FlappyBird = ({ onBack }) => {
     // collision
     const b=g.bird;
     if(b.y-BIRD_R<0||b.y+BIRD_R>H-GH){
-      g.status='dead'; setUi(u=>({...u,score:g.score,status:'dead',hi:Math.max(u.hi,g.score)})); draw(); return;
+      g.status='dead'; setUi(u=>({...u,score:g.score,status:'dead',hi:updateBest('flappybird',u.hi,g.score)})); draw(); return;
     }
     for(const p of g.pipes){
       if(b.x+BIRD_R>p.x&&b.x-BIRD_R<p.x+PIPE_W){
         if(b.y-BIRD_R<p.topH||b.y+BIRD_R>p.topH+GAP){
-          g.status='dead'; setUi(u=>({...u,score:g.score,status:'dead',hi:Math.max(u.hi,g.score)})); draw(); return;
+          g.status='dead'; setUi(u=>({...u,score:g.score,status:'dead',hi:updateBest('flappybird',u.hi,g.score)})); draw(); return;
         }
       }
     }
@@ -3516,6 +3552,7 @@ const BgMusic = () => {
       o.start(t); o.stop(t + MUSIC_BEAT);
       t += MUSIC_BEAT;
     });
+    // 提前 0.6 秒重排下一輪，讓音符之間不留靜默（overlap schedule 防止小段 gap）
     st.current.timer = setTimeout(loop, (MUSIC_SEQ.length * MUSIC_BEAT - 0.6) * 1000);
   };
 
@@ -3610,14 +3647,16 @@ const App = () => {
             </div>
             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">GameBox</h1>
           </div>
-          <span className="text-sm font-medium text-slate-400">v3.1 · {games.length} 款遊戲</span>
+          <span className="text-sm font-medium text-slate-400">v{APP_VERSION} · {games.length} 款遊戲</span>
         </div>
       </header>
 
       <main className="w-full max-w-7xl mx-auto p-4 md:p-8 flex flex-col items-center min-h-[calc(100vh-80px)]">
         {activeGame ? (
           <div className="w-full flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-300">
-            {renderGame()}
+            <GameErrorBoundary key={activeGame} onBack={() => setActiveGame(null)}>
+              {renderGame()}
+            </GameErrorBoundary>
           </div>
         ) : (
           <div className="w-full">
