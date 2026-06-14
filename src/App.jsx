@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket, Shield, Layers, Timer, Hash, Music, Hand } from 'lucide-react';
+import { Play, RotateCcw, Home, Trophy, Gamepad2, Grid3x3, Ghost, Brain, Car, Zap, Target, CircleDot, Swords, Rocket, Shield, Layers, Timer, Hash, Music, Hand, Crown } from 'lucide-react';
 import { version as APP_VERSION } from '../package.json';
 
 // --- 共用組件 ---
@@ -3526,9 +3526,74 @@ const DungeonCard = ({ onBack }) => {
   );
 };
 
+// --- 五子棋 (AI helpers) ---
+const GM_SIZE = 15;
+const GM_DIRS = [[0,1],[1,0],[1,1],[1,-1]];
+
+// 評估「在 (r,c) 落下 p 子」沿四個方向所形成的棋型分數
+const gmShape = (count, open) => {
+  if (count >= 5) return 1000000;          // 連五，獲勝
+  if (count === 4) return open === 2 ? 30000 : open === 1 ? 4000 : 0;  // 活四 / 衝四
+  if (count === 3) return open === 2 ? 1200 : open === 1 ? 120 : 0;    // 活三 / 眠三
+  if (count === 2) return open === 2 ? 60 : open === 1 ? 12 : 0;
+  if (count === 1) return open === 2 ? 4 : open === 1 ? 1 : 0;
+  return 0;
+};
+const gmLineScore = (b, r, c, p) => {
+  let total = 0;
+  for (const [dr, dc] of GM_DIRS) {
+    let count = 1, open = 0;
+    for (const sign of [1, -1]) {
+      let nr = r + dr * sign, nc = c + dc * sign;
+      while (nr >= 0 && nr < GM_SIZE && nc >= 0 && nc < GM_SIZE && b[nr][nc] === p) {
+        count++; nr += dr * sign; nc += dc * sign;
+      }
+      if (nr >= 0 && nr < GM_SIZE && nc >= 0 && nc < GM_SIZE && b[nr][nc] === null) open++;
+    }
+    total += gmShape(count, open);
+  }
+  return total;
+};
+// 候選點：只考慮已有棋子周圍 2 格內的空位
+const gmCandidates = (b) => {
+  const res = []; let any = false;
+  for (let r = 0; r < GM_SIZE; r++) for (let c = 0; c < GM_SIZE; c++) if (b[r][c]) { any = true; }
+  if (!any) return [[7, 7]];
+  const near = (r, c) => {
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < GM_SIZE && nc >= 0 && nc < GM_SIZE && b[nr][nc]) return true;
+    }
+    return false;
+  };
+  for (let r = 0; r < GM_SIZE; r++) for (let c = 0; c < GM_SIZE; c++)
+    if (!b[r][c] && near(r, c)) res.push([r, c]);
+  return res;
+};
+// 電腦選點：攻擊分 + 防守分(對手在此的威脅)；不同難度調整防守權重與隨機性
+const gmAiMove = (b, ai, human, diff) => {
+  const cands = gmCandidates(b);
+  if (!cands.length) return null;
+  if (diff === 'easy' && Math.random() < 0.3) return cands[Math.floor(Math.random() * cands.length)];
+  const bw = diff === 'easy' ? 0.6 : diff === 'hard' ? 1.1 : 0.9;
+  const noise = diff === 'hard' ? 0 : diff === 'easy' ? 0.4 : 0.05;
+  let best = cands[0], bestScore = -Infinity;
+  for (const [r, c] of cands) {
+    const gain = gmLineScore(b, r, c, ai);
+    if (gain >= 1000000) return [r, c];   // 自己能連五，直接獲勝
+    const block = gmLineScore(b, r, c, human);
+    const sc = (gain + block * bw) * (1 + (Math.random() * 2 - 1) * noise);
+    if (sc > bestScore) { bestScore = sc; best = [r, c]; }
+  }
+  return best;
+};
+
 // --- 五子棋 ---
 const Gomoku = ({ onBack }) => {
-  const SIZE = 15;
+  const SIZE = GM_SIZE;
+  const HUMAN = 'black', AI = 'white';  // 電腦模式：玩家執黑先手，電腦執白
+  const [mode, setMode] = useState(null);   // null=選單, '2p'=雙人, 'ai'=對電腦
+  const [diff, setDiff] = useState('normal');
   const [board, setBoard] = useState(() => Array.from({length: SIZE}, () => Array(SIZE).fill(null)));
   const [turn, setTurn] = useState('black');
   const [winner, setWinner] = useState(null);
@@ -3548,20 +3613,68 @@ const Gomoku = ({ onBack }) => {
     return null;
   };
 
-  const place = (r, c) => {
-    if (winner || board[r][c]) return;
+  const commit = (r, c, player) => {
     const nb = board.map(row => [...row]);
-    nb[r][c] = turn;
+    nb[r][c] = player;
     const mc = moveCount + 1;
     setBoard(nb); setMoveCount(mc);
-    const line = checkWin(nb, r, c, turn);
-    if (line) setWinner({ player: turn, line });
+    const line = checkWin(nb, r, c, player);
+    if (line) setWinner({ player, line });
     else if (mc === SIZE * SIZE) setWinner({ draw: true });
-    else setTurn(turn === 'black' ? 'white' : 'black');
+    else setTurn(player === 'black' ? 'white' : 'black');
   };
 
+  const place = (r, c) => {
+    if (winner || board[r][c]) return;
+    if (mode === 'ai' && turn === AI) return;   // 電腦回合，禁止玩家落子
+    commit(r, c, turn);
+  };
+
+  // 電腦回合：稍作延遲後落子
+  useEffect(() => {
+    if (mode !== 'ai' || winner || turn !== AI) return;
+    const id = setTimeout(() => {
+      const mv = gmAiMove(board, AI, HUMAN, diff);
+      if (mv) commit(mv[0], mv[1], AI);
+    }, 400);
+    return () => clearTimeout(id);
+  }, [mode, turn, winner, board, diff]);
+
   const reset = () => { setBoard(Array.from({length: SIZE}, () => Array(SIZE).fill(null))); setTurn('black'); setWinner(null); setMoveCount(0); };
+  const start = (m, d) => { setMode(m); setDiff(d || 'normal'); reset(); };
   const lineSet = new Set((winner?.line || []).map(([r, c]) => `${r},${c}`));
+
+  if (mode === null) return (
+    <div className="flex flex-col items-center py-10 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-6 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><CircleDot className="text-amber-400"/>五子棋</h2>
+        <div className="w-10"/>
+      </div>
+      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 max-w-sm w-full mx-4 space-y-4">
+        <button onClick={() => start('2p')} className="w-full bg-orange-700 hover:bg-orange-600 text-white p-4 rounded-xl font-bold flex items-center justify-between">
+          <div className="flex items-center gap-2"><span className="bg-white/20 p-2 rounded-lg">👥</span>雙人對戰</div><Play size={18}/>
+        </button>
+        <div>
+          <p className="text-slate-400 text-sm mb-2 text-center flex items-center justify-center gap-2"><span className="bg-white/10 px-2 py-1 rounded-lg">🤖</span>對電腦（你執黑先手）</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[['easy','簡單','bg-green-700 hover:bg-green-600'],['normal','普通','bg-amber-700 hover:bg-amber-600'],['hard','困難','bg-red-700 hover:bg-red-600']].map(([d, label, cls]) => (
+              <button key={d} onClick={() => start('ai', d)} className={`${cls} text-white py-3 rounded-xl font-bold`}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <p className="text-slate-500 text-xs text-center">橫/豎/斜連 5 顆即獲勝</p>
+      </div>
+    </div>
+  );
+
+  const isAi = mode === 'ai';
+  const status = winner?.draw ? '平手！'
+    : winner ? (isAi ? (winner.player === HUMAN ? '🎉 你獲勝！' : '🤖 電腦獲勝！')
+                     : `${winner.player === 'black' ? '⚫ 黑子' : '⚪ 白子'} 獲勝！`)
+    : isAi ? (turn === HUMAN ? '輪到你: ⚫ 黑子' : '🤖 電腦思考中…')
+           : <>輪到: {turn === 'black' ? '⚫ 黑子' : '⚪ 白子'}</>;
+  const lock = !!winner || (isAi && turn === AI);
 
   return (
     <div className="flex flex-col items-center py-6 w-full">
@@ -3571,8 +3684,7 @@ const Gomoku = ({ onBack }) => {
         <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
       </div>
       <div className="text-base font-bold text-white mb-3 bg-slate-800/50 px-4 py-1 rounded-full border border-slate-700/50">
-        {winner?.draw ? '平手！' : winner ? `${winner.player === 'black' ? '⚫ 黑子' : '⚪ 白子'} 獲勝！` :
-          <>輪到: {turn === 'black' ? '⚫ 黑子' : '⚪ 白子'}</>}
+        {status}
       </div>
       <div className="bg-amber-700 p-1.5 rounded-lg shadow-2xl">
         <div className="grid" style={{gridTemplateColumns:`repeat(${SIZE}, minmax(0, 1fr))`, gap:1, width:'min(92vw, 480px)'}}>
@@ -3580,15 +3692,445 @@ const Gomoku = ({ onBack }) => {
             const r = Math.floor(idx / SIZE), c = idx % SIZE;
             const hit = lineSet.has(`${r},${c}`);
             return (
-              <button key={idx} onClick={() => place(r, c)} disabled={!!winner || !!cell}
-                className="aspect-square bg-amber-600 hover:bg-amber-500 flex items-center justify-center transition-colors touch-manipulation">
+              <button key={idx} onClick={() => place(r, c)} disabled={lock || !!cell}
+                className="aspect-square bg-amber-600 hover:bg-amber-500 flex items-center justify-center transition-colors touch-manipulation disabled:hover:bg-amber-600">
                 {cell && <span className={`rounded-full ${cell === 'black' ? 'bg-slate-900' : 'bg-slate-100'} ${hit ? 'ring-2 ring-red-500' : ''}`} style={{width:'85%', height:'85%'}}/>}
               </button>
             );
           })}
         </div>
       </div>
-      <p className="text-slate-500 mt-3 text-xs">橫/豎/斜連 5 顆即獲勝</p>
+      <div className="flex items-center gap-3 mt-3">
+        <p className="text-slate-500 text-xs">{isAi ? `對電腦・${diff === 'easy' ? '簡單' : diff === 'hard' ? '困難' : '普通'}` : '雙人對戰'}</p>
+        <button onClick={() => setMode(null)} className="text-slate-400 hover:text-white text-xs underline">返回選單</button>
+      </div>
+      <Modal
+        isOpen={!!winner}
+        title={winner?.draw ? '平手！' : isAi ? (winner?.player === HUMAN ? '🎉 你獲勝！' : '🤖 電腦獲勝！') : `${winner?.player === 'black' ? '⚫ 黑子' : '⚪ 白子'} 獲勝！`}
+        message={`共下了 ${moveCount} 手`}
+        confirmText="再玩一次"
+        onConfirm={reset}
+        extraButtons={<Button onClick={() => setMode(null)} variant="secondary" className="w-full">返回選單</Button>}
+      />
+    </div>
+  );
+};
+
+// ===================== 西洋棋 =====================
+const CH_GLYPH = { K:'♚', Q:'♛', R:'♜', B:'♝', N:'♞', P:'♟' };
+const CH_VAL = { P:100, N:320, B:330, R:500, Q:900, K:20000 };
+const CH_MATE = 1000000;
+const chIn = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+const chCol = p => (p ? p[0] : null);
+const chInit = () => {
+  const back = ['R','N','B','Q','K','B','N','R'];
+  const b = Array.from({ length: 8 }, () => Array(8).fill(null));
+  for (let c = 0; c < 8; c++) { b[0][c] = 'b' + back[c]; b[1][c] = 'bP'; b[6][c] = 'wP'; b[7][c] = 'w' + back[c]; }
+  return b;
+};
+const chState = () => ({ board: chInit(), turn: 'w', castle: { wK:true, wQ:true, bK:true, bQ:true }, ep: null });
+const CH_KNIGHT = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+const CH_DIAG = [[-1,-1],[-1,1],[1,-1],[1,1]];
+const CH_ORTH = [[-1,0],[1,0],[0,-1],[0,1]];
+const CH_KING8 = [...CH_DIAG, ...CH_ORTH];
+
+// (r,c) 是否被 by 方攻擊
+const chAttacked = (b, r, c, by) => {
+  const pr = by === 'w' ? r + 1 : r - 1;
+  for (const dc of [-1, 1]) if (chIn(pr, c + dc) && b[pr][c + dc] === by + 'P') return true;
+  for (const [dr, dc] of CH_KNIGHT) if (chIn(r + dr, c + dc) && b[r + dr][c + dc] === by + 'N') return true;
+  for (const [dr, dc] of CH_KING8) if (chIn(r + dr, c + dc) && b[r + dr][c + dc] === by + 'K') return true;
+  for (const [dr, dc] of CH_DIAG) { let tr = r + dr, tc = c + dc; while (chIn(tr, tc)) { const q = b[tr][tc]; if (q) { if (q === by + 'B' || q === by + 'Q') return true; break; } tr += dr; tc += dc; } }
+  for (const [dr, dc] of CH_ORTH) { let tr = r + dr, tc = c + dc; while (chIn(tr, tc)) { const q = b[tr][tc]; if (q) { if (q === by + 'R' || q === by + 'Q') return true; break; } tr += dr; tc += dc; } }
+  return false;
+};
+const chFindKing = (b, col) => { for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (b[r][c] === col + 'K') return [r, c]; return null; };
+
+// 單一棋子的偽合法走法
+const chPieceMoves = (st, r, c) => {
+  const b = st.board, p = b[r][c];
+  if (!p) return [];
+  const col = p[0], t = p[1], enemy = col === 'w' ? 'b' : 'w', moves = [];
+  const add = (tr, tc, extra) => moves.push({ from: [r, c], to: [tr, tc], ...extra });
+  const slide = dirs => { for (const [dr, dc] of dirs) { let tr = r + dr, tc = c + dc; while (chIn(tr, tc)) { if (!b[tr][tc]) add(tr, tc); else { if (chCol(b[tr][tc]) === enemy) add(tr, tc); break; } tr += dr; tc += dc; } } };
+  if (t === 'P') {
+    const dir = col === 'w' ? -1 : 1, startRow = col === 'w' ? 6 : 1, promoRow = col === 'w' ? 0 : 7;
+    if (chIn(r + dir, c) && !b[r + dir][c]) {
+      add(r + dir, c, r + dir === promoRow ? { promo: true } : undefined);
+      if (r === startRow && !b[r + 2 * dir][c]) add(r + 2 * dir, c, { double: true });
+    }
+    for (const dc of [-1, 1]) {
+      const tr = r + dir, tc = c + dc;
+      if (!chIn(tr, tc)) continue;
+      if (b[tr][tc] && chCol(b[tr][tc]) === enemy) add(tr, tc, tr === promoRow ? { promo: true } : undefined);
+      else if (st.ep && st.ep[0] === tr && st.ep[1] === tc) add(tr, tc, { ep: true });
+    }
+  } else if (t === 'N') {
+    for (const [dr, dc] of CH_KNIGHT) if (chIn(r + dr, c + dc) && chCol(b[r + dr][c + dc]) !== col) add(r + dr, c + dc);
+  } else if (t === 'B') slide(CH_DIAG);
+  else if (t === 'R') slide(CH_ORTH);
+  else if (t === 'Q') slide(CH_KING8);
+  else if (t === 'K') {
+    for (const [dr, dc] of CH_KING8) if (chIn(r + dr, c + dc) && chCol(b[r + dr][c + dc]) !== col) add(r + dr, c + dc);
+    const home = col === 'w' ? 7 : 0;
+    if (r === home && c === 4 && !chAttacked(b, r, c, enemy)) {
+      if (st.castle[col + 'K'] && !b[home][5] && !b[home][6] && b[home][7] === col + 'R' && !chAttacked(b, home, 5, enemy) && !chAttacked(b, home, 6, enemy)) add(home, 6, { castle: 'K' });
+      if (st.castle[col + 'Q'] && !b[home][1] && !b[home][2] && !b[home][3] && b[home][0] === col + 'R' && !chAttacked(b, home, 2, enemy) && !chAttacked(b, home, 3, enemy)) add(home, 2, { castle: 'Q' });
+    }
+  }
+  return moves;
+};
+const chApply = (st, m) => {
+  const b = st.board.map(row => row.slice());
+  const [fr, fc] = m.from, [tr, tc] = m.to, p = b[fr][fc], col = p[0], t = p[1];
+  const ns = { board: b, turn: col === 'w' ? 'b' : 'w', castle: { ...st.castle }, ep: null };
+  if (m.ep) b[fr][tc] = null;
+  b[tr][tc] = m.promo ? col + 'Q' : p;
+  b[fr][fc] = null;
+  if (m.double) ns.ep = [(fr + tr) / 2, fc];
+  if (t === 'K') { if (m.castle === 'K') { b[tr][5] = col + 'R'; b[tr][7] = null; } else if (m.castle === 'Q') { b[tr][3] = col + 'R'; b[tr][0] = null; } ns.castle[col + 'K'] = false; ns.castle[col + 'Q'] = false; }
+  const clear = (rr, cc) => { if (rr === 7 && cc === 0) ns.castle.wQ = false; else if (rr === 7 && cc === 7) ns.castle.wK = false; else if (rr === 0 && cc === 0) ns.castle.bQ = false; else if (rr === 0 && cc === 7) ns.castle.bK = false; };
+  clear(fr, fc); clear(tr, tc);
+  return ns;
+};
+const chLegal = (st, col) => {
+  const res = [], enemy = col === 'w' ? 'b' : 'w';
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (chCol(st.board[r][c]) === col)
+    for (const m of chPieceMoves(st, r, c)) { const ns = chApply(st, m); const k = chFindKing(ns.board, col); if (k && !chAttacked(ns.board, k[0], k[1], enemy)) res.push(m); }
+  return res;
+};
+const chEvalWhite = b => {
+  let s = 0;
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const p = b[r][c]; if (!p) continue;
+    let v = CH_VAL[p[1]] + (7 - Math.abs(3.5 - r) - Math.abs(3.5 - c)) * 2;
+    if (p[1] === 'P') v += (p[0] === 'w' ? 6 - r : r - 1) * 4;
+    s += (p[0] === 'w' ? 1 : -1) * v;
+  }
+  return s;
+};
+const chMovesOf = (st, col) => { const ms = []; for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (chCol(st.board[r][c]) === col) ms.push(...chPieceMoves(st, r, c)); return ms; };
+const chSearch = (st, depth, alpha, beta) => {
+  if (depth === 0) { const e = chEvalWhite(st.board); return st.turn === 'w' ? e : -e; }
+  const moves = chMovesOf(st, st.turn);
+  moves.sort((a, b) => (CH_VAL[(st.board[b.to[0]][b.to[1]] || ' ')[1]] || 0) - (CH_VAL[(st.board[a.to[0]][a.to[1]] || ' ')[1]] || 0));
+  let best = -Infinity;
+  for (const m of moves) {
+    const tgt = st.board[m.to[0]][m.to[1]];
+    if (tgt && tgt[1] === 'K') return CH_MATE + depth;
+    const score = -chSearch(chApply(st, m), depth - 1, -beta, -alpha);
+    if (score > best) best = score;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) break;
+  }
+  return best;
+};
+const chBestMove = (st, diff) => {
+  const legal = chLegal(st, st.turn);
+  if (!legal.length) return null;
+  if (diff === 'easy' && Math.random() < 0.4) return legal[Math.floor(Math.random() * legal.length)];
+  const depth = diff === 'easy' ? 1 : diff === 'hard' ? 3 : 2;
+  let best = legal[0], bestScore = -Infinity;
+  for (const m of legal) {
+    let score = -chSearch(chApply(st, m), depth - 1, -Infinity, Infinity) + Math.random() * (diff === 'hard' ? 0 : 10);
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+};
+
+const Chess = ({ onBack }) => {
+  const HUMAN = 'w', AI = 'b';
+  const [mode, setMode] = useState(null);
+  const [diff, setDiff] = useState('normal');
+  const [st, setSt] = useState(chState);
+  const [sel, setSel] = useState(null);          // [r,c] 選中的格子
+  const [over, setOver] = useState(null);        // {win:'w'|'b'|'draw'}
+  const [last, setLast] = useState(null);        // 上一步 {from,to}
+
+  const targets = sel ? chLegal(st, st.turn).filter(m => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
+  const targetSet = new Set(targets.map(m => `${m.to[0]},${m.to[1]}`));
+  const inCheck = (() => { const k = chFindKing(st.board, st.turn); return k && chAttacked(st.board, k[0], k[1], st.turn === 'w' ? 'b' : 'w'); })();
+
+  const checkEnd = (ns) => {
+    if (!chLegal(ns, ns.turn).length) {
+      const k = chFindKing(ns.board, ns.turn);
+      const mated = k && chAttacked(ns.board, k[0], k[1], ns.turn === 'w' ? 'b' : 'w');
+      setOver({ win: mated ? (ns.turn === 'w' ? 'b' : 'w') : 'draw' });
+    }
+  };
+  const doMove = (m) => { const ns = chApply(st, m); setSt(ns); setLast({ from: m.from, to: m.to }); setSel(null); checkEnd(ns); };
+
+  const clickCell = (r, c) => {
+    if (over || (mode === 'ai' && st.turn === AI)) return;
+    const p = st.board[r][c];
+    if (sel && targetSet.has(`${r},${c}`)) { doMove(targets.find(m => m.to[0] === r && m.to[1] === c)); return; }
+    if (p && chCol(p) === st.turn) setSel([r, c]); else setSel(null);
+  };
+
+  useEffect(() => {
+    if (mode !== 'ai' || over || st.turn !== AI) return;
+    const id = setTimeout(() => { const m = chBestMove(st, diff); if (m) doMove(m); }, 350);
+    return () => clearTimeout(id);
+  }, [mode, st, over, diff]);
+
+  const reset = () => { setSt(chState()); setSel(null); setOver(null); setLast(null); };
+  const start = (m, d) => { setMode(m); setDiff(d || 'normal'); reset(); };
+
+  if (mode === null) return (
+    <div className="flex flex-col items-center py-10 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-6 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Crown className="text-amber-300"/>西洋棋</h2>
+        <div className="w-10"/>
+      </div>
+      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 max-w-sm w-full mx-4 space-y-4">
+        <button onClick={() => start('2p')} className="w-full bg-orange-700 hover:bg-orange-600 text-white p-4 rounded-xl font-bold flex items-center justify-between">
+          <div className="flex items-center gap-2"><span className="bg-white/20 p-2 rounded-lg">👥</span>雙人對戰</div><Play size={18}/>
+        </button>
+        <div>
+          <p className="text-slate-400 text-sm mb-2 text-center flex items-center justify-center gap-2"><span className="bg-white/10 px-2 py-1 rounded-lg">🤖</span>對電腦（你執白先手）</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[['easy','簡單','bg-green-700 hover:bg-green-600'],['normal','普通','bg-amber-700 hover:bg-amber-600'],['hard','困難','bg-red-700 hover:bg-red-600']].map(([d, label, cls]) => (
+              <button key={d} onClick={() => start('ai', d)} className={`${cls} text-white py-3 rounded-xl font-bold`}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <p className="text-slate-500 text-xs text-center">將死對方國王即獲勝・兵升變自動為后</p>
+      </div>
+    </div>
+  );
+
+  const isAi = mode === 'ai';
+  const lastSet = new Set(last ? [`${last.from[0]},${last.from[1]}`, `${last.to[0]},${last.to[1]}`] : []);
+  const status = over ? (over.win === 'draw' ? '和局！' : isAi ? (over.win === HUMAN ? '🎉 你獲勝（將死）！' : '🤖 電腦獲勝（將死）！') : `${over.win === 'w' ? '⚪ 白方' : '⚫ 黑方'} 將死獲勝！`)
+    : isAi ? (st.turn === HUMAN ? `輪到你 ⚪${inCheck ? '・將軍！' : ''}` : '🤖 電腦思考中…') : `輪到 ${st.turn === 'w' ? '⚪ 白方' : '⚫ 黑方'}${inCheck ? '・將軍！' : ''}`;
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Crown className="text-amber-300"/>西洋棋</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="text-base font-bold text-white mb-3 bg-slate-800/50 px-4 py-1 rounded-full border border-slate-700/50">{status}</div>
+      <div className="p-1.5 rounded-lg shadow-2xl bg-amber-900" style={{ width: 'min(92vw, 460px)' }}>
+        <div className="grid grid-cols-8">
+          {st.board.flat().map((p, idx) => {
+            const r = Math.floor(idx / 8), c = idx % 8;
+            const dark = (r + c) % 2 === 1;
+            const isSel = sel && sel[0] === r && sel[1] === c;
+            const tgt = targetSet.has(`${r},${c}`);
+            const hl = lastSet.has(`${r},${c}`);
+            return (
+              <button key={idx} onClick={() => clickCell(r, c)}
+                className={`aspect-square flex items-center justify-center relative touch-manipulation ${dark ? 'bg-amber-700' : 'bg-amber-200'} ${isSel ? 'ring-2 ring-inset ring-blue-500' : ''} ${hl ? 'ring-2 ring-inset ring-yellow-400/70' : ''}`}>
+                {p && <span style={{ fontSize: 'min(7vw, 34px)', lineHeight: 1, color: p[0] === 'w' ? '#f8fafc' : '#0f172a', textShadow: p[0] === 'w' ? '0 0 2px #000,0 1px 1px #000' : '0 0 1px #cbd5e1' }}>{CH_GLYPH[p[1]]}</span>}
+                {tgt && <span className={`absolute rounded-full ${p ? 'inset-0 ring-4 ring-inset ring-green-500/60' : 'bg-green-600/50'}`} style={p ? {} : { width: '32%', height: '32%' }}/>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <p className="text-slate-500 text-xs">{isAi ? `對電腦・${diff === 'easy' ? '簡單' : diff === 'hard' ? '困難' : '普通'}` : '雙人對戰'}</p>
+        <button onClick={() => setMode(null)} className="text-slate-400 hover:text-white text-xs underline">返回選單</button>
+      </div>
+      <Modal isOpen={!!over}
+        title={over?.win === 'draw' ? '和局！' : isAi ? (over?.win === HUMAN ? '🎉 你獲勝！' : '🤖 電腦獲勝！') : `${over?.win === 'w' ? '⚪ 白方' : '⚫ 黑方'} 獲勝！`}
+        message={over?.win === 'draw' ? '無子可動，和局' : '將死！'}
+        confirmText="再玩一次" onConfirm={reset}
+        extraButtons={<Button onClick={() => setMode(null)} variant="secondary" className="w-full">返回選單</Button>} />
+    </div>
+  );
+};
+
+// ===================== 象棋 =====================
+const XQ_CHAR = { r: { K:'帥', A:'仕', E:'相', H:'傌', R:'俥', C:'炮', S:'兵' }, b: { K:'將', A:'士', E:'象', H:'馬', R:'車', C:'砲', S:'卒' } };
+const XQ_VAL = { K:10000, R:600, C:300, H:270, E:130, A:130, S:60 };
+const XQ_MATE = 1000000;
+const xqIn = (r, c) => r >= 0 && r < 10 && c >= 0 && c < 9;
+const xqInit = () => {
+  const b = Array.from({ length: 10 }, () => Array(9).fill(null));
+  const back = ['R','H','E','A','K','A','E','H','R'];
+  for (let c = 0; c < 9; c++) { b[0][c] = 'b' + back[c]; b[9][c] = 'r' + back[c]; }
+  b[2][1] = 'bC'; b[2][7] = 'bC'; b[7][1] = 'rC'; b[7][7] = 'rC';
+  for (const c of [0, 2, 4, 6, 8]) { b[3][c] = 'bS'; b[6][c] = 'rS'; }
+  return b;
+};
+const xqState = () => ({ board: xqInit(), turn: 'r' });
+const XQ_ORTH = [[-1,0],[1,0],[0,-1],[0,1]];
+const xqFindKing = (b, col) => { for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) if (b[r][c] === col + 'K') return [r, c]; return null; };
+const XQ_HORSE_ATK = [[2,1,1,1],[2,-1,1,-1],[-2,1,-1,1],[-2,-1,-1,-1],[1,2,1,1],[1,-2,1,-1],[-1,2,-1,1],[-1,-2,-1,-1]];
+
+// (r,c) 是否被 by 方攻擊（含飛將）
+const xqAttacked = (b, r, c, by) => {
+  for (const [dr, dc] of [[-1,0],[1,0]]) { let tr = r + dr, tc = c + dc; while (tr >= 0 && tr < 10) { const q = b[tr][tc]; if (q) { if (q === by + 'R' || q === by + 'K') return true; break; } tr += dr; } }
+  for (const [dr, dc] of [[0,-1],[0,1]]) { let tr = r + dr, tc = c + dc; while (tc >= 0 && tc < 9) { const q = b[tr][tc]; if (q) { if (q === by + 'R') return true; break; } tc += dc; } }
+  for (const [dr, dc] of XQ_ORTH) { let tr = r + dr, tc = c + dc, screen = false; while (xqIn(tr, tc)) { const q = b[tr][tc]; if (q) { if (!screen) screen = true; else { if (q === by + 'C') return true; break; } } tr += dr; tc += dc; } }
+  for (const [hr, hc, lr, lc] of XQ_HORSE_ATK) { const Hr = r + hr, Hc = c + hc; if (!xqIn(Hr, Hc)) continue; if (b[Hr][Hc] === by + 'H' && !b[r + lr][c + lc]) return true; }
+  if (by === 'r') { if (r < 9 && b[r + 1][c] === 'rS') return true; if (r <= 4 && (b[r][c - 1] === 'rS' || b[r][c + 1] === 'rS')) return true; }
+  else { if (r > 0 && b[r - 1][c] === 'bS') return true; if (r >= 5 && (b[r][c - 1] === 'bS' || b[r][c + 1] === 'bS')) return true; }
+  return false;
+};
+const xqPieceMoves = (b, r, c) => {
+  const p = b[r][c]; if (!p) return [];
+  const col = p[0], t = p[1], moves = [];
+  const own = q => q && q[0] === col;
+  const add = (tr, tc) => { if (xqIn(tr, tc) && !own(b[tr][tc])) moves.push({ from: [r, c], to: [tr, tc] }); };
+  if (t === 'R') { for (const [dr, dc] of XQ_ORTH) { let tr = r + dr, tc = c + dc; while (xqIn(tr, tc)) { if (!b[tr][tc]) moves.push({ from: [r, c], to: [tr, tc] }); else { if (b[tr][tc][0] !== col) moves.push({ from: [r, c], to: [tr, tc] }); break; } tr += dr; tc += dc; } } }
+  else if (t === 'C') { for (const [dr, dc] of XQ_ORTH) { let tr = r + dr, tc = c + dc; while (xqIn(tr, tc) && !b[tr][tc]) { moves.push({ from: [r, c], to: [tr, tc] }); tr += dr; tc += dc; } if (xqIn(tr, tc)) { tr += dr; tc += dc; while (xqIn(tr, tc)) { if (b[tr][tc]) { if (b[tr][tc][0] !== col) moves.push({ from: [r, c], to: [tr, tc] }); break; } tr += dr; tc += dc; } } } }
+  else if (t === 'H') { for (const [dr, dc, lr, lc] of [[-2,-1,-1,0],[-2,1,-1,0],[2,-1,1,0],[2,1,1,0],[-1,-2,0,-1],[1,-2,0,-1],[-1,2,0,1],[1,2,0,1]]) if (xqIn(r + lr, c + lc) && !b[r + lr][c + lc]) add(r + dr, c + dc); }
+  else if (t === 'E') { for (const [dr, dc] of [[-2,-2],[-2,2],[2,-2],[2,2]]) { const tr = r + dr, tc = c + dc; if (!xqIn(tr, tc)) continue; if (col === 'r' && tr < 5) continue; if (col === 'b' && tr > 4) continue; if (b[r + dr / 2][c + dc / 2]) continue; if (!own(b[tr][tc])) moves.push({ from: [r, c], to: [tr, tc] }); } }
+  else if (t === 'A') { for (const [dr, dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) { const tr = r + dr, tc = c + dc; if (tc < 3 || tc > 5) continue; if (col === 'r' && (tr < 7 || tr > 9)) continue; if (col === 'b' && (tr < 0 || tr > 2)) continue; if (!own(b[tr][tc])) moves.push({ from: [r, c], to: [tr, tc] }); } }
+  else if (t === 'K') { for (const [dr, dc] of XQ_ORTH) { const tr = r + dr, tc = c + dc; if (tc < 3 || tc > 5) continue; if (col === 'r' && (tr < 7 || tr > 9)) continue; if (col === 'b' && (tr < 0 || tr > 2)) continue; if (!own(b[tr][tc])) moves.push({ from: [r, c], to: [tr, tc] }); } }
+  else if (t === 'S') { const fwd = col === 'r' ? -1 : 1; add(r + fwd, c); const crossed = col === 'r' ? r <= 4 : r >= 5; if (crossed) { add(r, c - 1); add(r, c + 1); } }
+  return moves;
+};
+const xqApply = (st, m) => { const b = st.board.map(row => row.slice()); const [fr, fc] = m.from, [tr, tc] = m.to; b[tr][tc] = b[fr][fc]; b[fr][fc] = null; return { board: b, turn: st.turn === 'r' ? 'b' : 'r' }; };
+const xqLegal = (st, col) => {
+  const res = [], enemy = col === 'r' ? 'b' : 'r';
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) if (st.board[r][c] && st.board[r][c][0] === col)
+    for (const m of xqPieceMoves(st.board, r, c)) { const ns = xqApply(st, m); const k = xqFindKing(ns.board, col); if (k && !xqAttacked(ns.board, k[0], k[1], enemy)) res.push(m); }
+  return res;
+};
+const xqEvalRed = b => {
+  let s = 0;
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) {
+    const p = b[r][c]; if (!p) continue;
+    let v = XQ_VAL[p[1]];
+    if (p[1] === 'S') { const adv = p[0] === 'r' ? 9 - r : r; v += adv * 3 + (((p[0] === 'r' && r <= 4) || (p[0] === 'b' && r >= 5)) ? 20 : 0); }
+    else if (p[1] === 'H' || p[1] === 'C') v += (4 - Math.abs(4 - c)) * 2;
+    s += (p[0] === 'r' ? 1 : -1) * v;
+  }
+  return s;
+};
+const xqMovesOf = (st, col) => { const ms = []; for (let r = 0; r < 10; r++) for (let c = 0; c < 9; c++) if (st.board[r][c] && st.board[r][c][0] === col) ms.push(...xqPieceMoves(st.board, r, c)); return ms; };
+const xqSearch = (st, depth, alpha, beta) => {
+  if (depth === 0) { const e = xqEvalRed(st.board); return st.turn === 'r' ? e : -e; }
+  const moves = xqMovesOf(st, st.turn);
+  moves.sort((a, b) => (XQ_VAL[(st.board[b.to[0]][b.to[1]] || ' ')[1]] || 0) - (XQ_VAL[(st.board[a.to[0]][a.to[1]] || ' ')[1]] || 0));
+  let best = -Infinity;
+  for (const m of moves) {
+    const tgt = st.board[m.to[0]][m.to[1]];
+    if (tgt && tgt[1] === 'K') return XQ_MATE + depth;
+    const score = -xqSearch(xqApply(st, m), depth - 1, -beta, -alpha);
+    if (score > best) best = score;
+    if (best > alpha) alpha = best;
+    if (alpha >= beta) break;
+  }
+  return best;
+};
+const xqBestMove = (st, diff) => {
+  const legal = xqLegal(st, st.turn);
+  if (!legal.length) return null;
+  if (diff === 'easy' && Math.random() < 0.4) return legal[Math.floor(Math.random() * legal.length)];
+  const depth = diff === 'easy' ? 1 : diff === 'hard' ? 3 : 2;
+  let best = legal[0], bestScore = -Infinity;
+  for (const m of legal) {
+    const score = -xqSearch(xqApply(st, m), depth - 1, -Infinity, Infinity) + Math.random() * (diff === 'hard' ? 0 : 8);
+    if (score > bestScore) { bestScore = score; best = m; }
+  }
+  return best;
+};
+
+const Xiangqi = ({ onBack }) => {
+  const HUMAN = 'r', AI = 'b';
+  const [mode, setMode] = useState(null);
+  const [diff, setDiff] = useState('normal');
+  const [st, setSt] = useState(xqState);
+  const [sel, setSel] = useState(null);
+  const [over, setOver] = useState(null);
+  const [last, setLast] = useState(null);
+
+  const targets = sel ? xqLegal(st, st.turn).filter(m => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
+  const targetSet = new Set(targets.map(m => `${m.to[0]},${m.to[1]}`));
+  const inCheck = (() => { const k = xqFindKing(st.board, st.turn); return k && xqAttacked(st.board, k[0], k[1], st.turn === 'r' ? 'b' : 'r'); })();
+
+  const checkEnd = ns => { if (!xqLegal(ns, ns.turn).length) setOver({ win: ns.turn === 'r' ? 'b' : 'r' }); };
+  const doMove = m => { const ns = xqApply(st, m); setSt(ns); setLast({ from: m.from, to: m.to }); setSel(null); checkEnd(ns); };
+  const clickCell = (r, c) => {
+    if (over || (mode === 'ai' && st.turn === AI)) return;
+    const p = st.board[r][c];
+    if (sel && targetSet.has(`${r},${c}`)) { doMove(targets.find(m => m.to[0] === r && m.to[1] === c)); return; }
+    if (p && p[0] === st.turn) setSel([r, c]); else setSel(null);
+  };
+
+  useEffect(() => {
+    if (mode !== 'ai' || over || st.turn !== AI) return;
+    const id = setTimeout(() => { const m = xqBestMove(st, diff); if (m) doMove(m); }, 350);
+    return () => clearTimeout(id);
+  }, [mode, st, over, diff]);
+
+  const reset = () => { setSt(xqState()); setSel(null); setOver(null); setLast(null); };
+  const start = (m, d) => { setMode(m); setDiff(d || 'normal'); reset(); };
+
+  if (mode === null) return (
+    <div className="flex flex-col items-center py-10 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-6 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Swords className="text-red-400"/>象棋</h2>
+        <div className="w-10"/>
+      </div>
+      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 max-w-sm w-full mx-4 space-y-4">
+        <button onClick={() => start('2p')} className="w-full bg-orange-700 hover:bg-orange-600 text-white p-4 rounded-xl font-bold flex items-center justify-between">
+          <div className="flex items-center gap-2"><span className="bg-white/20 p-2 rounded-lg">👥</span>雙人對戰</div><Play size={18}/>
+        </button>
+        <div>
+          <p className="text-slate-400 text-sm mb-2 text-center flex items-center justify-center gap-2"><span className="bg-white/10 px-2 py-1 rounded-lg">🤖</span>對電腦（你執紅先手）</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[['easy','簡單','bg-green-700 hover:bg-green-600'],['normal','普通','bg-amber-700 hover:bg-amber-600'],['hard','困難','bg-red-700 hover:bg-red-600']].map(([d, label, cls]) => (
+              <button key={d} onClick={() => start('ai', d)} className={`${cls} text-white py-3 rounded-xl font-bold`}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <p className="text-slate-500 text-xs text-center">將死或困斃對方將帥即獲勝</p>
+      </div>
+    </div>
+  );
+
+  const isAi = mode === 'ai';
+  const lastSet = new Set(last ? [`${last.from[0]},${last.from[1]}`, `${last.to[0]},${last.to[1]}`] : []);
+  const status = over ? (isAi ? (over.win === HUMAN ? '🎉 你獲勝！' : '🤖 電腦獲勝！') : `${over.win === 'r' ? '🔴 紅方' : '⚫ 黑方'} 獲勝！`)
+    : isAi ? (st.turn === HUMAN ? `輪到你 🔴${inCheck ? '・將軍！' : ''}` : '🤖 電腦思考中…') : `輪到 ${st.turn === 'r' ? '🔴 紅方' : '⚫ 黑方'}${inCheck ? '・將軍！' : ''}`;
+
+  return (
+    <div className="flex flex-col items-center py-6 w-full">
+      <div className="flex justify-between w-full max-w-md items-center mb-4 px-4">
+        <Button onClick={onBack} variant="outline" className="!px-3"><Home size={18}/></Button>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2"><Swords className="text-red-400"/>象棋</h2>
+        <Button onClick={reset} variant="secondary" className="!px-3"><RotateCcw size={18}/></Button>
+      </div>
+      <div className="text-base font-bold text-white mb-3 bg-slate-800/50 px-4 py-1 rounded-full border border-slate-700/50">{status}</div>
+      <div className="rounded-lg shadow-2xl p-1" style={{ width: 'min(94vw, 420px)', background: '#e8b96a' }}>
+        <div className="grid grid-cols-9">
+          {st.board.flat().map((p, idx) => {
+            const r = Math.floor(idx / 9), c = idx % 9;
+            const isSel = sel && sel[0] === r && sel[1] === c;
+            const tgt = targetSet.has(`${r},${c}`);
+            const hl = lastSet.has(`${r},${c}`);
+            return (
+              <button key={idx} onClick={() => clickCell(r, c)}
+                className={`aspect-square flex items-center justify-center relative touch-manipulation ${r === 4 ? 'border-b-2 border-b-amber-800/50' : ''}`}
+                style={{ boxShadow: 'inset 0 0 0 1px rgba(120,72,20,0.35)' }}>
+                {hl && <span className="absolute inset-0 bg-yellow-300/30"/>}
+                {p ? (
+                  <span className={`flex items-center justify-center rounded-full border-2 font-bold ${isSel ? 'ring-2 ring-blue-500' : ''}`}
+                    style={{ width: '88%', height: '88%', fontSize: 'min(5.6vw, 26px)', background: '#fdf2d8', borderColor: p[0] === 'r' ? '#b91c1c' : '#1f2937', color: p[0] === 'r' ? '#b91c1c' : '#1f2937' }}>{XQ_CHAR[p[0]][p[1]]}</span>
+                ) : null}
+                {tgt && <span className={`absolute rounded-full ${p ? 'inset-0 ring-4 ring-inset ring-green-500/60' : 'bg-green-600/60'}`} style={p ? {} : { width: '30%', height: '30%' }}/>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 mt-3">
+        <p className="text-slate-500 text-xs">{isAi ? `對電腦・${diff === 'easy' ? '簡單' : diff === 'hard' ? '困難' : '普通'}` : '雙人對戰'}・河界為楚河漢界</p>
+        <button onClick={() => setMode(null)} className="text-slate-400 hover:text-white text-xs underline">返回選單</button>
+      </div>
+      <Modal isOpen={!!over}
+        title={isAi ? (over?.win === HUMAN ? '🎉 你獲勝！' : '🤖 電腦獲勝！') : `${over?.win === 'r' ? '🔴 紅方' : '⚫ 黑方'} 獲勝！`}
+        message="將死對方！" confirmText="再玩一次" onConfirm={reset}
+        extraButtons={<Button onClick={() => setMode(null)} variant="secondary" className="w-full">返回選單</Button>} />
     </div>
   );
 };
@@ -3992,7 +4534,9 @@ const App = () => {
     { id:'reaction',   title:'反應力測試',   desc:'畫面變綠時盡快點擊！個人最佳反應時間紀錄。',     icon:<Timer size={40} className="text-yellow-400"/>,  color:'from-yellow-500/20 to-amber-500/10 border-yellow-500/30', badge:'1P', hot:true },
     { id:'fifteen',    title:'15 數字推盤',  desc:'經典推盤益智！把 1-15 按順序排好，步數越少越厲害。', icon:<Hash size={40} className="text-indigo-400"/>,   color:'from-indigo-500/20 to-purple-500/10 border-indigo-500/30', badge:'1P', hot:true },
     { id:'rps',        title:'剪刀石頭布',   desc:'對戰 CPU 考人品！連勝次數會永久記錄。',          icon:<Hand size={40} className="text-pink-400"/>,     color:'from-pink-500/20 to-rose-500/10 border-pink-500/30',    badge:'1P', hot:true },
-    { id:'gomoku',     title:'五子棋',        desc:'15×15 雙人對戰，橫豎斜連 5 顆即勝利。',          icon:<CircleDot size={40} className="text-amber-400"/>,color:'from-amber-500/20 to-yellow-500/10 border-amber-500/30', badge:'2P', hot:true },
+    { id:'gomoku',     title:'五子棋',        desc:'15×15 棋盤！可雙人對戰或挑戰電腦（三種難度），橫豎斜連 5 顆即勝利。', icon:<CircleDot size={40} className="text-amber-400"/>,color:'from-amber-500/20 to-yellow-500/10 border-amber-500/30', badge:'1-2P', hot:true },
+    { id:'chess',      title:'西洋棋',        desc:'完整規則！支援王車易位、吃過路兵、兵升變。可雙人或挑戰電腦 AI。', icon:<Crown size={40} className="text-amber-300"/>,    color:'from-amber-500/20 to-orange-500/10 border-amber-500/30', badge:'1-2P', hot:true },
+    { id:'xiangqi',    title:'象棋',          desc:'中國象棋！馬腿、象眼、砲架、飛將規則完整。可雙人或挑戰電腦 AI。', icon:<Swords size={40} className="text-red-400"/>,     color:'from-red-500/20 to-amber-500/10 border-red-500/30',     badge:'1-2P', hot:true },
   ];
 
   const renderGame = () => {
@@ -4024,6 +4568,8 @@ const App = () => {
       case 'fifteen':    return <FifteenPuzzle onBack={back} />;
       case 'rps':        return <RPS onBack={back} />;
       case 'gomoku':     return <Gomoku onBack={back} />;
+      case 'chess':      return <Chess onBack={back} />;
+      case 'xiangqi':    return <Xiangqi onBack={back} />;
       default: return null;
     }
   };
